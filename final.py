@@ -244,7 +244,11 @@ def load_api_from_pg() -> pl.DataFrame:
 
     d_minus_1_rules = (
         (pl.col("categoryid") == "15030000")
-        | ((pl.col("categoryid") == "16000000") & ~bankfees_package_rule)
+        | (
+            (pl.col("categoryid") == "16000000")
+            & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
+            & ~bankfees_package_rule
+        )
         | (pl.col("categoryid") == "05050000")
         | (pl.col("api_optype_upper") == "RENDIMENTO_APLIC_FINANCEIRA")
         | early_transfer_rule
