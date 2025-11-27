@@ -235,6 +235,10 @@ def load_api_from_pg() -> pl.DataFrame:
             (pl.col("categoryid") == "05070000")
             & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
         )
+        | (
+            pl.col("api_is_bankfees")
+            & (pl.col("api_optype_upper") == "PACOTE_TARIFA_SERVICOS")
+        )
     )
 
     conc_date_base = (
