@@ -230,11 +230,17 @@ def load_api_from_pg() -> pl.DataFrame:
         & (pl.col("api_optype_upper") == "PACOTE_TARIFA_SERVICOS")
     )
 
+    early_transfer_rule = (
+        (pl.col("categoryid") == "05030000")
+        & (pl.col("date_ts_br").dt.strftime("%H:%M:%S") <= "05:00:00")
+    )
+
     d_minus_1_rules = (
         (pl.col("categoryid") == "15030000")
         | ((pl.col("categoryid") == "16000000") & ~bankfees_package_rule)
         | (pl.col("categoryid") == "05050000")
         | (pl.col("api_optype_upper") == "RENDIMENTO_APLIC_FINANCEIRA")
+        | early_transfer_rule
     )
     d_minus_2_rules = (
         (pl.col("categoryid") == "03060000")
