@@ -225,9 +225,29 @@ def load_api_from_pg() -> pl.DataFrame:
     )
 
     # 5) Datas de conciliação (ajustes especiais + fim de semana)
+    bankfees_package_rule = (
+        pl.col("api_is_bankfees")
+        & (pl.col("api_optype_upper") == "PACOTE_TARIFA_SERVICOS")
+    )
+
+    txn_time_ref = pl.coalesce([pl.col("date_ts_br"), pl.col("date_ts_utc"), pl.col("date")])
+    txn_seconds = (
+        txn_time_ref.dt.hour().cast(pl.Int64) * 3600
+        + txn_time_ref.dt.minute().cast(pl.Int64) * 60
+        + txn_time_ref.dt.second().cast(pl.Int64)
+    )
+
+    early_transfer_rule = (
+        (pl.col("categoryid") == "05030000")
+        & (txn_seconds <= 5 * 3600)
+    )
+
     d_minus_1_rules = (
-        (pl.col("categoryid").is_in(["15030000", "16000000", "05050000"]))
+        (pl.col("categoryid") == "15030000")
+        | ((pl.col("categoryid") == "16000000") & ~bankfees_package_rule)
+        | (pl.col("categoryid") == "05050000")
         | (pl.col("api_optype_upper") == "RENDIMENTO_APLIC_FINANCEIRA")
+        | early_transfer_rule
     )
     d_minus_2_rules = (
         (pl.col("categoryid") == "03060000")
@@ -235,6 +255,7 @@ def load_api_from_pg() -> pl.DataFrame:
             (pl.col("categoryid") == "05070000")
             & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
         )
+        | bankfees_package_rule
     )
 
     conc_date_base = (
