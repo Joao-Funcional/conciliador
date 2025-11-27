@@ -230,9 +230,16 @@ def load_api_from_pg() -> pl.DataFrame:
         & (pl.col("api_optype_upper") == "PACOTE_TARIFA_SERVICOS")
     )
 
+    txn_time_ref = pl.coalesce([pl.col("date_ts_br"), pl.col("date_ts_utc"), pl.col("date")])
+    txn_seconds = (
+        txn_time_ref.dt.hour().cast(pl.Int64) * 3600
+        + txn_time_ref.dt.minute().cast(pl.Int64) * 60
+        + txn_time_ref.dt.second().cast(pl.Int64)
+    )
+
     early_transfer_rule = (
         (pl.col("categoryid") == "05030000")
-        & (pl.col("date_ts_br").dt.strftime("%H:%M:%S") <= "05:00:00")
+        & (txn_seconds <= 5 * 3600)
     )
 
     d_minus_1_rules = (
