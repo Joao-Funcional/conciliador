@@ -225,8 +225,15 @@ def load_api_from_pg() -> pl.DataFrame:
     )
 
     # 5) Datas de conciliação (ajustes especiais + fim de semana)
+    bankfees_package_rule = (
+        pl.col("api_is_bankfees")
+        & (pl.col("api_optype_upper") == "PACOTE_TARIFA_SERVICOS")
+    )
+
     d_minus_1_rules = (
-        (pl.col("categoryid").is_in(["15030000", "16000000", "05050000"]))
+        (pl.col("categoryid") == "15030000")
+        | ((pl.col("categoryid") == "16000000") & ~bankfees_package_rule)
+        | (pl.col("categoryid") == "05050000")
         | (pl.col("api_optype_upper") == "RENDIMENTO_APLIC_FINANCEIRA")
     )
     d_minus_2_rules = (
@@ -235,10 +242,7 @@ def load_api_from_pg() -> pl.DataFrame:
             (pl.col("categoryid") == "05070000")
             & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
         )
-        | (
-            pl.col("api_is_bankfees")
-            & (pl.col("api_optype_upper") == "PACOTE_TARIFA_SERVICOS")
-        )
+        | bankfees_package_rule
     )
 
     conc_date_base = (
