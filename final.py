@@ -1622,14 +1622,14 @@ def transform(
     A_tax = (
         A.filter(pl.col("api_is_tax"))
          .with_columns(pl.col("api_cents").alias("cents"))
-         .sort(by=["tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents","api_row_id"])
+         .sort(by=["tenant_id","bank_code","api_acc_tail","api_sign","api_date","cents","api_row_id"])
          .with_columns(
              pl.arange(1, pl.len() + 1)
-               .over(["tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents"])
+               .over(["tenant_id","bank_code","api_acc_tail","api_sign","api_date","cents"])
                .alias("rn")
          )
          .select(["api_row_id","tenant_id","bank_code","api_acc_tail","api_sign",
-                  "api_date_d1","cents","rn"])
+                  "api_date","cents","rn"])
     )
     E_tax = (
         E.with_columns(pl.col("erp_cents").alias("cents"))
@@ -1648,7 +1648,7 @@ def transform(
             ("bank_code","bank_code"),
             ("api_acc_tail","erp_acc_tail"),
             ("api_sign","erp_sign"),
-            ("api_date_d1","erp_date"),
+            ("api_date","erp_date"),
             ("cents","cents"),
             ("rn","rn"),
         ],
@@ -1660,13 +1660,13 @@ def transform(
     A_bf = (
         A.filter(pl.col("api_is_bankfees"))
          .with_columns(pl.col("api_cents").alias("cents"))
-         .sort(by=["tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents","api_row_id"])
+         .sort(by=["tenant_id","bank_code","api_acc_tail","api_sign","api_date","cents","api_row_id"])
          .with_columns(
              pl.arange(1, pl.len() + 1)
-               .over(["tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents"])
+               .over(["tenant_id","bank_code","api_acc_tail","api_sign","api_date","cents"])
                .alias("rn")
          )
-         .select(["api_row_id","tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents","rn"])
+         .select(["api_row_id","tenant_id","bank_code","api_acc_tail","api_sign","api_date","cents","rn"])
     )
     E_bf = (
         E.with_columns(pl.col("erp_cents").alias("cents"))
@@ -1685,7 +1685,7 @@ def transform(
             ("bank_code","bank_code"),
             ("api_acc_tail","erp_acc_tail"),
             ("api_sign","erp_sign"),
-            ("api_date_d1","erp_date"),
+            ("api_date","erp_date"),
             ("cents","cents"),
             ("rn","rn"),
         ],
@@ -1696,15 +1696,15 @@ def transform(
     A_rent_d1 = (
         A.filter(pl.col("api_is_rent_d1"))
          .with_columns(pl.col("api_cents").alias("cents"))
-         .sort(by=["tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents","api_row_id"])
+         .sort(by=["tenant_id","bank_code","api_acc_tail","api_sign","api_date","cents","api_row_id"])
          .with_columns(
              pl.arange(1, pl.len() + 1)
-               .over(["tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents"])
+               .over(["tenant_id","bank_code","api_acc_tail","api_sign","api_date","cents"])
                .alias("rn")
          )
          .select([
              "api_row_id","tenant_id","bank_code","api_acc_tail","api_sign",
-             "api_date_d1","cents","rn",
+             "api_date","cents","rn",
          ])
     )
     E_rent_d1 = (
@@ -1727,7 +1727,7 @@ def transform(
             ("bank_code","bank_code"),
             ("api_acc_tail","erp_acc_tail"),
             ("api_sign","erp_sign"),
-            ("api_date_d1","erp_date"),  # API D+1 vs ERP
+            ("api_date","erp_date"),
             ("cents","cents"),
             ("rn","rn"),
         ],
