@@ -2036,6 +2036,7 @@ def transform(
                 ("api_unrec_abs", pl.Float64),
                 ("erp_unrec_abs", pl.Float64),
                 ("unrec_total_abs", pl.Float64),
+                ("unrec_diff", pl.Float64),
             ]
         )
         monthly = pl.DataFrame(
@@ -2134,6 +2135,11 @@ def transform(
                 .round(2)
                 .alias("unrec_total_abs")
             )
+            .with_columns(
+                (pl.col("erp_unrec_abs") - pl.col("api_unrec_abs"))
+                .round(2)
+                .alias("unrec_diff")
+            )
         )
 
         monthly = (
@@ -2211,7 +2217,8 @@ CREATE TABLE IF NOT EXISTS gold_conciliation_daily (
     erp_matched_abs numeric(18,2),
     api_unrec_abs numeric(18,2),
     erp_unrec_abs numeric(18,2),
-    unrec_total_abs numeric(18,2)
+    unrec_total_abs numeric(18,2),
+    unrec_diff numeric(18,2)
 )
 """
 
