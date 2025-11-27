@@ -242,13 +242,26 @@ def load_api_from_pg() -> pl.DataFrame:
         & (txn_seconds <= 5 * 3600)
     )
 
+    bankfees_avulso_rule = (
+        (
+            (pl.col("categoryid") == "16000000")
+            | (pl.coalesce([pl.col("category"), pl.lit("")]).str.to_lowercase() == "bank fees")
+        )
+        & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
+        & ~bankfees_package_rule
+    )
+    bankfees_carga_crt_rule = (
+        bankfees_avulso_rule
+        & pl.col("api_desc_norm").str.contains(
+            "TARIFA BANCARIA - CARGA CRT TRANSP", literal=True
+        )
+    )
+
+    d_plus_2_rules = pl.lit(False)
+
     d_minus_1_rules = (
         (pl.col("categoryid") == "15030000")
-        | (
-            (pl.col("categoryid") == "16000000")
-            & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
-            & ~bankfees_package_rule
-        )
+        | (bankfees_avulso_rule & ~bankfees_carga_crt_rule)
         | (pl.col("categoryid") == "05050000")
         | (pl.col("api_optype_upper") == "RENDIMENTO_APLIC_FINANCEIRA")
         | early_transfer_rule
@@ -260,6 +273,7 @@ def load_api_from_pg() -> pl.DataFrame:
             & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
         )
         | bankfees_package_rule
+        | bankfees_carga_crt_rule
     )
 
     conc_date_base = (
@@ -267,12 +281,14 @@ def load_api_from_pg() -> pl.DataFrame:
           .then(shift_business_days(pl.col("api_date_raw"), -1))
           .when(d_minus_2_rules)
           .then(shift_business_days(pl.col("api_date_raw"), -2))
+          .when(d_plus_2_rules)
+          .then(shift_business_days(pl.col("api_date_raw"), 2))
           .otherwise(pl.col("api_date_raw"))
     )
 
     conc_date = (
-        pl.when(d_minus_1_rules | d_minus_2_rules)
-          # deslocamentos D-1/D-2 nunca podem ficar em fim de semana: volta para sexta
+        pl.when(d_minus_1_rules | d_minus_2_rules | d_plus_2_rules)
+          # deslocamentos D-1/D-2/D+2 nunca podem ficar em fim de semana: volta para sexta
           .then(
               conc_date_base.map_elements(
                   lambda d: prev_business_day(d) if is_weekend(d) else d,
