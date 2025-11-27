@@ -36,20 +36,6 @@ MAX_GROUP_GUARD = 2000
 MITM_STATE_BUDGET = int(os.getenv("MITM_STATE_BUDGET", "200000"))  # antes 1_000_000
 CAP_PER_VALUE     = int(os.getenv("CAP_PER_VALUE", "32"))
 
-# Regras de ajuste de data apenas no lado da API.
-# FLAG_DATE_SHIFTS: lista de tuplas (flag_bool, deslocamento_em_dias)
-FLAG_DATE_SHIFTS: list[tuple[str, int]] = [
-    ("api_is_tax", -1),
-    ("api_is_bankfees", -1),
-    ("api_is_pix_tariff", -2),
-    ("api_is_rent", -2),
-]
-
-# Deslocamentos baseados em categorias (case-insensitive).
-CATEGORY_DATE_SHIFTS: dict[str, int] = {
-    "transfer - foreign exchange": -1,
-}
-
 # Limites específicos para o fallback DP (programação dinâmica)
 # acima disso, NÃO roda DP, só MITM
 DP_MAX_TARGET_CENTS = int(os.getenv("DP_MAX_TARGET_CENTS", "200000"))  # R$ 2.000,00
@@ -238,35 +224,16 @@ def load_api_from_pg() -> pl.DataFrame:
         ])
     )
 
-    # 5) Normalização de datas apenas no lado da API
-    df = df.with_columns(
-        pl.coalesce([pl.col("category"), pl.lit("")]).str.to_lowercase().alias("api_category_lower")
-    )
-
-    api_date_expr = pl.col("api_date")
-    for flag, delta in FLAG_DATE_SHIFTS:
-        api_date_expr = pl.when(pl.col(flag)).then(
-            api_date_expr + pl.duration(days=delta)
-        ).otherwise(api_date_expr)
-
-    for cat, delta in CATEGORY_DATE_SHIFTS.items():
-        api_date_expr = pl.when(pl.col("api_category_lower") == cat).then(
-            api_date_expr + pl.duration(days=delta)
-        ).otherwise(api_date_expr)
-
-    api_date_expr = pl.when(api_date_expr.dt.weekday() == 5).then(
-        api_date_expr + pl.duration(days=2)
-    ).otherwise(api_date_expr)
-
+    # 5) Datas derivadas D-1 / D-2 + seleção final
     df = (
         df
         .with_columns([
-            pl.col("api_date").alias("api_date_raw"),
-            api_date_expr.alias("api_date"),
+            (pl.col("api_date") - dt.timedelta(days=1)).alias("api_date_d1"),
+            (pl.col("api_date") - dt.timedelta(days=2)).alias("api_date_d2"),
         ])
         .select([
             "api_row_id", "api_uid", "tenant_id",
-            "api_date", "api_date_raw",
+            "api_date", "api_date_d1", "api_date_d2",
             "api_amount", "api_cents", "api_sign",
             "api_acc_tail", "api_desc_norm",
             "bank_code",
@@ -1536,26 +1503,32 @@ def transform(
     if A0.is_empty() and E0.is_empty():
         return {k: pl.DataFrame() for k in ["matches", "unrec_api", "unrec_erp", "daily", "monthly"]}
 
+    cal = build_calendar(DATE_FROM, DATE_TO, 15)
+
     A = (
-        A0.with_columns([
-            pl.coalesce([
-                pl.col("api_desc_norm").str.extract(r"DOCTO\s+(\d{5,8})", 1),
-                pl.col("api_desc_norm").str.extract(r"DOC\s+(\d{5,8})", 1),
-            ])
-            .map_elements(normalize_doc_key_str, return_dtype=pl.Utf8)
-            .alias("api_doc_key")
-        ])
+        A0.join(cal.rename({"cal_date": "api_date"}), on="api_date", how="left")
+          .rename({"biz_ord": "api_biz_ord"})
+          .with_columns([
+              pl.coalesce([
+                  pl.col("api_desc_norm").str.extract(r"DOCTO\s+(\d{5,8})", 1),
+                  pl.col("api_desc_norm").str.extract(r"DOC\s+(\d{5,8})", 1),
+              ])
+              .map_elements(normalize_doc_key_str, return_dtype=pl.Utf8)
+              .alias("api_doc_key")
+          ])
     )
 
     E = (
-        E0.with_columns([
-            pl.coalesce([
-                pl.col("erp_desc_norm").str.extract(r"DOC\s+(\d{5,8})", 1),
-                pl.col("erp_desc_norm").str.extract(r"DOCTO\s+(\d{5,8})", 1),
-            ])
-            .map_elements(normalize_doc_key_str, return_dtype=pl.Utf8)
-            .alias("erp_doc_key")
-        ])
+        E0.join(cal.rename({"cal_date": "erp_date"}), on="erp_date", how="left")
+          .rename({"biz_ord": "erp_biz_ord"})
+          .with_columns([
+              pl.coalesce([
+                  pl.col("erp_desc_norm").str.extract(r"DOC\s+(\d{5,8})", 1),
+                  pl.col("erp_desc_norm").str.extract(r"DOCTO\s+(\d{5,8})", 1),
+              ])
+              .map_elements(normalize_doc_key_str, return_dtype=pl.Utf8)
+              .alias("erp_doc_key")
+          ])
     )
 
     matches_parts: list[pl.DataFrame] = []
@@ -1596,6 +1569,360 @@ def transform(
         # consome p/ próximos estágios
         A = A.join(x.select("api_row_id").unique(), on="api_row_id", how="anti")
         E = E.join(x.select("erp_row_id").unique(), on="erp_row_id", how="anti")
+
+    # ---------- M0 TAX D-1 (RN 1x1 centavos) ----------
+    A_tax = (
+        A.filter(pl.col("api_is_tax"))
+         .with_columns(pl.col("api_cents").alias("cents"))
+         .sort(by=["tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents","api_row_id"])
+         .with_columns(
+             pl.arange(1, pl.len() + 1)
+               .over(["tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents"])
+               .alias("rn")
+         )
+         .select(["api_row_id","tenant_id","bank_code","api_acc_tail","api_sign",
+                  "api_date_d1","cents","rn"])
+    )
+    E_tax = (
+        E.with_columns(pl.col("erp_cents").alias("cents"))
+         .sort(by=["tenant_id","bank_code","erp_acc_tail","erp_sign","erp_date","cents","erp_row_id"])
+         .with_columns(
+             pl.arange(1, pl.len() + 1)
+               .over(["tenant_id","bank_code","erp_acc_tail","erp_sign","erp_date","cents"])
+               .alias("rn")
+         )
+         .select(["erp_row_id","tenant_id","bank_code","erp_acc_tail","erp_sign","erp_date","cents","rn"])
+    )
+    j_tax = join_pairs(
+        A_tax, E_tax,
+        [
+            ("tenant_id","tenant_id"),
+            ("bank_code","bank_code"),
+            ("api_acc_tail","erp_acc_tail"),
+            ("api_sign","erp_sign"),
+            ("api_date_d1","erp_date"),
+            ("cents","cents"),
+            ("rn","rn"),
+        ],
+    ).select(["api_row_id","erp_row_id"])
+
+    consume(j_tax, "M0_TAX_DMINUS1_RN_1TO1", 5, ddiff_val=1)
+
+    # ---------- M0 BANK FEES D-1 ----------
+    A_bf = (
+        A.filter(pl.col("api_is_bankfees"))
+         .with_columns(pl.col("api_cents").alias("cents"))
+         .sort(by=["tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents","api_row_id"])
+         .with_columns(
+             pl.arange(1, pl.len() + 1)
+               .over(["tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents"])
+               .alias("rn")
+         )
+         .select(["api_row_id","tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents","rn"])
+    )
+    E_bf = (
+        E.with_columns(pl.col("erp_cents").alias("cents"))
+         .sort(by=["tenant_id","bank_code","erp_acc_tail","erp_sign","erp_date","cents","erp_row_id"])
+         .with_columns(
+             pl.arange(1, pl.len() + 1)
+               .over(["tenant_id","bank_code","erp_acc_tail","erp_sign","erp_date","cents"])
+               .alias("rn")
+         )
+         .select(["erp_row_id","tenant_id","bank_code","erp_acc_tail","erp_sign","erp_date","cents","rn"])
+    )
+    j_bf = join_pairs(
+        A_bf, E_bf,
+        [
+            ("tenant_id","tenant_id"),
+            ("bank_code","bank_code"),
+            ("api_acc_tail","erp_acc_tail"),
+            ("api_sign","erp_sign"),
+            ("api_date_d1","erp_date"),
+            ("cents","cents"),
+            ("rn","rn"),
+        ],
+    ).select(["api_row_id","erp_row_id"])
+    consume(j_bf, "M0_BANKFEES_DMINUS1_RN_1TO1", 6, ddiff_val=1)
+
+        # ---------- M0 RENT D-1 (RENDIMENTO_APLIC_FINANCEIRA, Itaú) ----------
+    A_rent_d1 = (
+        A.filter(pl.col("api_is_rent_d1"))
+         .with_columns(pl.col("api_cents").alias("cents"))
+         .sort(by=["tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents","api_row_id"])
+         .with_columns(
+             pl.arange(1, pl.len() + 1)
+               .over(["tenant_id","bank_code","api_acc_tail","api_sign","api_date_d1","cents"])
+               .alias("rn")
+         )
+         .select([
+             "api_row_id","tenant_id","bank_code","api_acc_tail","api_sign",
+             "api_date_d1","cents","rn",
+         ])
+    )
+    E_rent_d1 = (
+        E.with_columns(pl.col("erp_cents").alias("cents"))
+         .sort(by=["tenant_id","bank_code","erp_acc_tail","erp_sign","erp_date","cents","erp_row_id"])
+         .with_columns(
+             pl.arange(1, pl.len() + 1)
+               .over(["tenant_id","bank_code","erp_acc_tail","erp_sign","erp_date","cents"])
+               .alias("rn")
+         )
+         .select([
+             "erp_row_id","tenant_id","bank_code","erp_acc_tail","erp_sign",
+             "erp_date","cents","rn",
+         ])
+    )
+    j_rent_d1 = join_pairs(
+        A_rent_d1, E_rent_d1,
+        [
+            ("tenant_id","tenant_id"),
+            ("bank_code","bank_code"),
+            ("api_acc_tail","erp_acc_tail"),
+            ("api_sign","erp_sign"),
+            ("api_date_d1","erp_date"),  # API D+1 vs ERP
+            ("cents","cents"),
+            ("rn","rn"),
+        ],
+    ).select(["api_row_id","erp_row_id"])
+
+    consume(j_rent_d1, "M0_RENT_DMINUS1_RN_1TO1", 7, ddiff_val=1)
+
+    # ---------- M0 PIX DOCNUM BIZWIN (principal, DOC/DOCTO, D±2 úteis) ----------
+    A_pix_doc = (
+        A.filter(pl.col("api_is_pix_tariff") & pl.col("api_doc_key").is_not_null())
+         .with_columns(pl.col("api_cents").alias("cents"))
+         .sort(by=[
+             "tenant_id","bank_code","api_acc_tail","api_sign",
+             "api_doc_key","cents","api_row_id",
+         ])
+         .with_columns(
+             pl.arange(1, pl.len() + 1)
+               .over([
+                   "tenant_id","bank_code","api_acc_tail","api_sign",
+                   "api_doc_key","cents",
+               ])
+               .alias("rn")
+         )
+         .select([
+             "api_row_id","tenant_id","bank_code","api_acc_tail","api_sign",
+             "api_doc_key","api_biz_ord","api_date","cents","rn",
+         ])
+    )
+
+    E_pix_doc = (
+        E.filter(pl.col("erp_doc_key").is_not_null())
+         .with_columns(pl.col("erp_cents").alias("cents"))
+         .sort(by=[
+             "tenant_id","bank_code","erp_acc_tail","erp_sign",
+             "erp_doc_key","cents","erp_row_id",
+         ])
+         .with_columns(
+             pl.arange(1, pl.len() + 1)
+               .over([
+                   "tenant_id","bank_code","erp_acc_tail","erp_sign",
+                   "erp_doc_key","cents",
+               ])
+               .alias("rn")
+         )
+         .select([
+             "erp_row_id","tenant_id","bank_code","erp_acc_tail","erp_sign",
+             "erp_doc_key","erp_biz_ord","erp_date","cents","rn",
+         ])
+    )
+
+    j_pix_doc = (
+        join_pairs(
+            A_pix_doc, E_pix_doc,
+            [
+                ("tenant_id","tenant_id"),
+                ("bank_code","bank_code"),
+                ("api_acc_tail","erp_acc_tail"),
+                ("api_sign","erp_sign"),
+                ("api_doc_key","erp_doc_key"),
+                ("cents","cents"),
+                ("rn","rn"),
+            ],
+        )
+        .with_columns(
+            (pl.col("api_biz_ord") - pl.col("erp_biz_ord")).abs().alias("ddiff")
+        )
+        .filter(pl.col("ddiff") <= 2)  # D±2 dias ÚTEIS
+        .select(["api_row_id","erp_row_id","ddiff"])
+    )
+
+    consume(j_pix_doc, "M0_PIX_DOCNUM_BIZWIN_RN_1TO1", 7)
+
+    # ---------- M0 PIX TARIFA D+2 1x1 ----------
+    A_pix = (
+        A.filter(pl.col("api_is_pix_tariff"))
+         .with_columns(pl.col("api_cents").alias("cents"))
+         .sort(by=["tenant_id","bank_code","api_acc_tail","api_sign","api_biz_ord","cents","api_row_id"])
+         .with_columns(
+             pl.arange(1, pl.len() + 1)
+               .over(["tenant_id","bank_code","api_acc_tail","api_sign","api_biz_ord","cents"])
+               .alias("rn")
+         )
+         .select(["api_row_id","tenant_id","bank_code","api_acc_tail","api_sign",
+                  "api_biz_ord","cents","rn","api_date"])
+    )
+    E_pix = (
+        E.with_columns(pl.col("erp_cents").alias("cents"))
+         .sort(by=["tenant_id","bank_code","erp_acc_tail","erp_sign","erp_biz_ord","cents","erp_row_id"])
+         .with_columns(
+             pl.arange(1, pl.len() + 1)
+               .over(["tenant_id","bank_code","erp_acc_tail","erp_sign","erp_biz_ord","cents"])
+               .alias("rn")
+         )
+         .select(["erp_row_id","tenant_id","bank_code","erp_acc_tail","erp_sign",
+                  "erp_biz_ord","cents","rn","erp_date"])
+    )
+    cond_biz2 = pl.col("api_biz_ord") == pl.col("erp_biz_ord") + 2
+    cond_cal2 = pl.col("api_date") == (pl.col("erp_date") + dt.timedelta(days=2))
+    j_pix = (
+        join_pairs(
+            A_pix, E_pix,
+            [
+                ("tenant_id","tenant_id"),
+                ("bank_code","bank_code"),
+                ("api_acc_tail","erp_acc_tail"),
+                ("api_sign","erp_sign"),
+                ("cents","cents"),
+                ("rn","rn"),
+            ],
+        )
+        .filter(cond_biz2 | cond_cal2)
+        .select(["api_row_id","erp_row_id"])
+    )
+
+    # ---------- M0 RENT D+2 1x1 ----------
+    A_rent = (
+        A.filter(pl.col("api_is_rent") & ~pl.col("api_is_rent_d1"))
+         .with_columns(pl.col("api_cents").alias("cents"))
+         .sort(by=["tenant_id","bank_code","api_acc_tail","api_sign","api_biz_ord","cents","api_row_id"])
+         .with_columns(
+             pl.arange(1, pl.len() + 1)
+               .over(["tenant_id","bank_code","api_acc_tail","api_sign","api_biz_ord","cents"])
+               .alias("rn")
+         )
+         .select(["api_row_id","tenant_id","bank_code","api_acc_tail","api_sign",
+                  "api_biz_ord","cents","rn","api_date"])
+    )
+    E_rent = (
+        E.with_columns(pl.col("erp_cents").alias("cents"))
+         .sort(by=["tenant_id","bank_code","erp_acc_tail","erp_sign","erp_biz_ord","cents","erp_row_id"])
+         .with_columns(
+             pl.arange(1, pl.len() + 1)
+               .over(["tenant_id","bank_code","erp_acc_tail","erp_sign","erp_biz_ord","cents"])
+               .alias("rn")
+         )
+         .select(["erp_row_id","tenant_id","bank_code","erp_acc_tail","erp_sign",
+                  "erp_biz_ord","cents","rn","erp_date"])
+    )
+    cond_biz2 = pl.col("api_biz_ord") == pl.col("erp_biz_ord") + 2
+    cond_cal2 = pl.col("api_date") == (pl.col("erp_date") + dt.timedelta(days=2))
+    j_rent = (
+        join_pairs(
+            A_rent, E_rent,
+            [
+                ("tenant_id","tenant_id"),
+                ("bank_code","bank_code"),
+                ("api_acc_tail","erp_acc_tail"),
+                ("api_sign","erp_sign"),
+                ("cents","cents"),
+                ("rn","rn"),
+            ],
+        )
+        .filter(cond_biz2 | cond_cal2)
+        .select(["api_row_id","erp_row_id"])
+    )
+    consume(j_rent, "M0_RENT_BIZPLUS2_RN_1TO1", 8, ddiff_val=2)
+
+    # ---------- PIX / RENT KSUM D+2 (tarifas/rentabilidades ainda) ----------
+    if not A.is_empty() and not E.is_empty():
+        base_pix = (
+            A.filter(pl.col("api_is_pix_tariff"))
+            .pipe(lambda X: join_pairs(
+                X, E,
+                [
+                    ("tenant_id","tenant_id"),
+                    ("bank_code","bank_code"),
+                    ("api_acc_tail","erp_acc_tail"),
+                    ("api_sign","erp_sign"),
+                ],
+            ))
+             .select([
+                 "api_row_id","api_amount",
+                 pl.col("api_date").alias("api_date"),
+                 pl.col("api_biz_ord").alias("api_biz_ord"),
+                 "erp_row_id","erp_amount",
+                 pl.col("erp_date").alias("erp_date"),
+                 pl.col("erp_biz_ord").alias("erp_biz_ord"),
+             ])
+             .filter(
+                 (pl.col("api_biz_ord") == pl.col("erp_biz_ord") + 2)
+                 | (pl.col("api_date") == (pl.col("erp_date") + dt.timedelta(days=2)))
+             )
+        )
+    else:
+        base_pix = pl.DataFrame(
+            schema=[
+                ("api_row_id",pl.Int64),("api_amount",pl.Float64),
+                ("api_date",pl.Date),("api_biz_ord",pl.Int64),
+                ("erp_row_id",pl.Int64),("erp_amount",pl.Float64),
+                ("erp_date",pl.Date),("erp_biz_ord",pl.Int64),
+            ]
+        )
+
+    if not base_pix.is_empty():
+        pix_n1 = apply_per_group(base_pix, ["erp_row_id", "api_date"], solve_n1_group)
+        pix_1n = apply_per_group(base_pix, ["api_row_id", "erp_date"], solve_1n_group)
+    else:
+        pix_n1 = pl.DataFrame({"api_row_id": [], "erp_row_id": []})
+        pix_1n = pl.DataFrame({"api_row_id": [], "erp_row_id": []})
+    consume(pix_n1, "M2_PIX_KSUM_BIZPLUS2_N1", 18, ddiff_val=2)
+    consume(pix_1n, "M2_PIX_KSUM_BIZPLUS2_1N", 19, ddiff_val=2)
+
+    if not A.is_empty() and not E.is_empty():
+        base_rent = (
+            A.filter(pl.col("api_is_rent") & ~pl.col("api_is_rent_d1"))
+             .pipe(lambda X: join_pairs(
+                 X, E,
+                 [("tenant_id","tenant_id"),
+                  ("bank_code","bank_code"),
+                  ("api_acc_tail","erp_acc_tail"),
+                  ("api_sign","erp_sign")]
+             ))
+             .select([
+                 "api_row_id","api_amount",
+                 pl.col("api_date").alias("api_date"),
+                 pl.col("api_biz_ord").alias("api_biz_ord"),
+                 "erp_row_id","erp_amount",
+                 pl.col("erp_date").alias("erp_date"),
+                 pl.col("erp_biz_ord").alias("erp_biz_ord"),
+             ])
+             .filter(
+                 (pl.col("api_biz_ord") == pl.col("erp_biz_ord") + 2)
+                 | (pl.col("api_date") == (pl.col("erp_date") + dt.timedelta(days=2)))
+             )
+        )
+    else:
+        base_rent = pl.DataFrame(
+            schema=[
+                ("api_row_id",pl.Int64),("api_amount",pl.Float64),
+                ("api_date",pl.Date),("api_biz_ord",pl.Int64),
+                ("erp_row_id",pl.Int64),("erp_amount",pl.Float64),
+                ("erp_date",pl.Date),("erp_biz_ord",pl.Int64),
+            ]
+        )
+
+    if not base_rent.is_empty():
+        rent_n1 = apply_per_group(base_rent, ["erp_row_id", "api_date"], solve_n1_group)
+        rent_1n = apply_per_group(base_rent, ["api_row_id", "erp_date"], solve_1n_group)
+    else:
+        rent_n1 = pl.DataFrame({"api_row_id": [], "erp_row_id": []})
+        rent_1n = pl.DataFrame({"api_row_id": [], "erp_row_id": []})
+    consume(rent_n1, "M2_RENT_KSUM_BIZPLUS2_N1", 21, ddiff_val=2)
+    consume(rent_1n, "M2_RENT_KSUM_BIZPLUS2_1N", 22, ddiff_val=2)
 
     # ---------- ESTÁGIOS POR DESCRIÇÃO (01/02/03) ----------
     if desc_edges_by_type:
@@ -1657,9 +1984,147 @@ def transform(
     ).select(["api_row_id","erp_row_id"])
     consume(j_m1, "M1_SAME_DAY_RN", 10, ddiff_val=0)
 
+    # ---------- M1 BIZWIN 1x1 (D±2 úteis, centavos) ----------
+    # Agora usando A0/E0, excluindo apenas o que já foi conciliado nos estágios anteriores.
+    if not A0.is_empty() and not E0.is_empty():
+        if matches_parts:
+            all_matches = pl.concat(matches_parts)
+            used_api = all_matches["api_row_id"].unique()
+            used_erp = all_matches["erp_row_id"].unique()
+        else:
+            used_api = pl.Series("api_row_id", [], dtype=pl.Int64)
+            used_erp = pl.Series("erp_row_id", [], dtype=pl.Int64)
+
+        # API ainda não usada em nenhum estágio anterior
+        A_m1 = (
+            A0.join(used_api.to_frame("api_row_id"),
+                    on="api_row_id", how="anti")
+              .join(
+                  cal.rename({"cal_date": "api_date"}),
+                  on="api_date",
+                  how="left",
+              )
+              .rename({"biz_ord": "api_biz_ord"})
+              .filter(~pl.col("api_is_rent"))  # continua ignorando rent
+              .with_columns(pl.col("api_cents").alias("cents"))
+              .sort(
+                  by=[
+                      "tenant_id",
+                      "bank_code",
+                      "api_acc_tail",
+                      "api_sign",
+                      "api_biz_ord",
+                      "cents",
+                      "api_row_id",
+                  ]
+              )
+              .with_columns(
+                  pl.arange(1, pl.len() + 1)
+                    .over([
+                        "tenant_id",
+                        "bank_code",
+                        "api_acc_tail",
+                        "api_sign",
+                        "api_biz_ord",
+                        "cents",
+                    ])
+                    .alias("rn")
+              )
+              .select([
+                  "api_row_id",
+                  "tenant_id",
+                  "bank_code",
+                  "api_acc_tail",
+                  "api_sign",
+                  "api_biz_ord",
+                  "cents",
+                  "rn",
+                  "api_date",
+              ])
+        )
+
+        # ERP ainda não usada em nenhum estágio anterior
+        E_m1 = (
+            E0.join(used_erp.to_frame("erp_row_id"),
+                    on="erp_row_id", how="anti")
+              .join(
+                  cal.rename({"cal_date": "erp_date"}),
+                  on="erp_date",
+                  how="left",
+              )
+              .rename({"biz_ord": "erp_biz_ord"})
+              .with_columns(pl.col("erp_cents").alias("cents"))
+              .sort(
+                  by=[
+                      "tenant_id",
+                      "bank_code",
+                      "erp_acc_tail",
+                      "erp_sign",
+                      "erp_biz_ord",
+                      "cents",
+                      "erp_row_id",
+                  ]
+              )
+              .with_columns(
+                  pl.arange(1, pl.len() + 1)
+                    .over([
+                        "tenant_id",
+                        "bank_code",
+                        "erp_acc_tail",
+                        "erp_sign",
+                        "erp_biz_ord",
+                        "cents",
+                    ])
+                    .alias("rn")
+              )
+              .select([
+                  "erp_row_id",
+                  "tenant_id",
+                  "bank_code",
+                  "erp_acc_tail",
+                  "erp_sign",
+                  "erp_biz_ord",
+                  "cents",
+                  "rn",
+                  "erp_date",
+              ])
+        )
+
+        m1_win = (
+            join_pairs(
+                A_m1,
+                E_m1,
+                [
+                    ("tenant_id", "tenant_id"),
+                    ("bank_code", "bank_code"),
+                    ("api_acc_tail", "erp_acc_tail"),
+                    ("api_sign", "erp_sign"),
+                    ("cents", "cents"),
+                    ("rn", "rn"),
+                ],
+            )
+            .with_columns(
+                (pl.col("api_biz_ord") - pl.col("erp_biz_ord"))
+                .abs()
+                .alias("ddiff")
+            )
+            .filter(pl.col("ddiff") <= 2)   # D±2 úteis
+            .select(["api_row_id", "erp_row_id", "ddiff"])
+        )
+    else:
+        m1_win = pl.DataFrame(
+            schema=[
+                ("api_row_id", pl.Int64),
+                ("erp_row_id", pl.Int64),
+                ("ddiff", pl.Int64),
+            ]
+        )
+
+    consume(m1_win, "M1_BIZWIN_1TO1", 12)
+
     # ---------- KSUM SAME-DAY (N:1 e 1:N) ----------
     if not A.is_empty() and not E.is_empty():
-        A_k = A.select([
+        A_k = A.filter(~pl.col("api_is_rent")).select([
             pl.col("api_row_id"),
             pl.lit(None, dtype=pl.Int64).alias("erp_row_id"),
             "tenant_id",
@@ -1691,6 +2156,31 @@ def transform(
     else:
         m2_same = pl.DataFrame({"api_row_id": [], "erp_row_id": []})
     consume(m2_same, "M2_KSUM_SAME_DAY", 20, ddiff_val=0)
+
+    # ---------- KSUM janela D±2 ----------
+    if not A.is_empty() and not E.is_empty():
+        base = (
+            join_pairs(
+                A.filter(~pl.col("api_is_rent") & ~pl.col("api_is_pix_tariff")),
+                E,
+                [
+                    ("tenant_id","tenant_id"),
+                    ("bank_code","bank_code"),
+                    ("api_acc_tail","erp_acc_tail"),
+                    ("api_sign","erp_sign"),
+                ],
+            )
+            .filter((pl.col("api_biz_ord") - pl.col("erp_biz_ord")).abs() <= 2)
+            .select(["api_row_id","api_amount","erp_row_id","erp_amount"])
+        )
+        n1_links   = apply_per_group(base, ["erp_row_id"], solve_n1_group)
+        one_n_links = apply_per_group(base, ["api_row_id"], solve_1n_group)
+    else:
+        n1_links   = pl.DataFrame({"api_row_id": [], "erp_row_id": []})
+        one_n_links = pl.DataFrame({"api_row_id": [], "erp_row_id": []})
+
+    consume(n1_links,  "M2_KSUM_BIZWIN_N1", 25, ddiff_val=0)
+    consume(one_n_links,"M2_KSUM_BIZWIN_1N", 26, ddiff_val=0)
 
     # ---------- 07 FALLBACK BALANCE DAY (N:M por saldo diário) ----------
     if not A.is_empty() and not E.is_empty():
