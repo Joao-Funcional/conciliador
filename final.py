@@ -237,20 +237,30 @@ def load_api_from_pg() -> pl.DataFrame:
         )
     )
 
-    conc_date = (
+    conc_date_base = (
         pl.when(d_minus_1_rules)
-          .then(pl.col("api_date_raw") - dt.timedelta(days=1))
+          .then(shift_business_days(pl.col("api_date_raw"), -1))
           .when(d_minus_2_rules)
-          .then(pl.col("api_date_raw") - dt.timedelta(days=2))
+          .then(shift_business_days(pl.col("api_date_raw"), -2))
           .otherwise(pl.col("api_date_raw"))
     )
 
     conc_date = (
-        pl.when(conc_date.dt.weekday() == 5)
-          .then(conc_date + dt.timedelta(days=2))
-          .when(conc_date.dt.weekday() == 6)
-          .then(conc_date + dt.timedelta(days=1))
-          .otherwise(conc_date)
+        pl.when(d_minus_1_rules | d_minus_2_rules)
+          # deslocamentos D-1/D-2 nunca podem ficar em fim de semana: volta para sexta
+          .then(
+              conc_date_base.map_elements(
+                  lambda d: prev_business_day(d) if is_weekend(d) else d,
+                  return_dtype=pl.Date,
+              )
+          )
+          # datas originais em fim de semana vão para a segunda-feira seguinte
+          .otherwise(
+              conc_date_base.map_elements(
+                  lambda d: next_business_day(d) if is_weekend(d) else d,
+                  return_dtype=pl.Date,
+              )
+          )
     )
 
     # 6) Datas derivadas D-1 / D-2 + seleção final
@@ -259,8 +269,8 @@ def load_api_from_pg() -> pl.DataFrame:
         .with_columns([
             conc_date.alias("api_conciliation_date"),
             conc_date.alias("api_date"),
-            (conc_date - dt.timedelta(days=1)).alias("api_date_d1"),
-            (conc_date - dt.timedelta(days=2)).alias("api_date_d2"),
+            shift_business_days(conc_date, -1).alias("api_date_d1"),
+            shift_business_days(conc_date, -2).alias("api_date_d2"),
         ])
         .select([
             "api_row_id", "api_uid", "tenant_id",
@@ -777,6 +787,13 @@ def add_business_days(d: date, n: int) -> date:
         else:
             d = prev_business_day(d)
     return d
+
+def shift_business_days(expr: pl.Expr, n: int) -> pl.Expr:
+    """Aplica um deslocamento em dias úteis a uma coluna de datas."""
+    return expr.map_elements(
+        lambda d: add_business_days(d, n),
+        return_dtype=pl.Date,
+    )
 
 def candidate_dates(d: date) -> List[date]:
     """
