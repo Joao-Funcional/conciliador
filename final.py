@@ -262,14 +262,6 @@ def load_api_from_pg() -> pl.DataFrame:
         | bankfees_package_rule
     )
 
-    api_date_utc_expr = (
-        pl.coalesce([
-            pl.col("date_ts_utc"),
-            pl.col("date_ts_br"),
-            pl.col("date"),
-        ]).dt.date()
-    )
-
     conc_date_base = (
         pl.when(d_minus_1_rules)
           .then(shift_business_days(pl.col("api_date_raw"), -1))
@@ -304,15 +296,13 @@ def load_api_from_pg() -> pl.DataFrame:
             conc_date.alias("api_date"),
             shift_business_days(conc_date, -1).alias("api_date_d1"),
             shift_business_days(conc_date, -2).alias("api_date_d2"),
-            api_date_utc_expr.alias("api_date_utc"),
         ])
         .select([
             "api_row_id", "api_uid", "tenant_id",
             "api_date_raw", "api_conciliation_date", "api_date", "api_date_d1", "api_date_d2",
-            "api_date_utc",
             "api_amount", "api_cents", "api_sign",
             "api_acc_tail", "api_desc_norm",
-            "bank_code", "api_optype_upper",
+            "bank_code",
             "api_is_tax", "api_is_bankfees",
             "api_is_pix_tariff",
             "api_is_rent",        # geral (D+1 + D+2)
@@ -1727,38 +1717,6 @@ def transform(
     ).select(["api_row_id","erp_row_id"])
     consume(j_bf, "M0_BANKFEES_DMINUS1_RN_1TO1", 6, ddiff_val=1)
 
-    # ---------- M0 BANK FEES D-1 (fallback usando date_ts_utc) ----------
-    A_bf_utc = (
-        A.filter(
-            pl.col("api_is_bankfees")
-            & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
-        )
-         .with_columns(pl.col("api_cents").alias("cents"))
-         .sort(by=["tenant_id","bank_code","api_acc_tail","api_sign","api_date_utc","cents","api_row_id"])
-         .with_columns(
-             pl.arange(1, pl.len() + 1)
-               .over(["tenant_id","bank_code","api_acc_tail","api_sign","api_date_utc","cents"])
-               .alias("rn")
-         )
-         .select([
-             "api_row_id","tenant_id","bank_code","api_acc_tail","api_sign",
-             "api_date_utc","cents","rn",
-         ])
-    )
-    j_bf_utc = join_pairs(
-        A_bf_utc, E_bf,
-        [
-            ("tenant_id","tenant_id"),
-            ("bank_code","bank_code"),
-            ("api_acc_tail","erp_acc_tail"),
-            ("api_sign","erp_sign"),
-            ("api_date_utc","erp_date"),
-            ("cents","cents"),
-            ("rn","rn"),
-        ],
-    ).select(["api_row_id","erp_row_id"])
-    consume(j_bf_utc, "M0_BANKFEES_DMINUS1_UTC_FALLBACK", 6, ddiff_val=1)
-
         # ---------- M0 RENT D-1 (RENDIMENTO_APLIC_FINANCEIRA, Itaú) ----------
     A_rent_d1 = (
         A.filter(pl.col("api_is_rent_d1"))
@@ -1864,7 +1822,7 @@ def transform(
 
     # ---------- KSUM SAME-DAY (N:1 e 1:N) ----------
     if not A.is_empty() and not E.is_empty():
-        A_k = A.filter(~pl.col("api_is_rent") & ~pl.col("api_is_bankfees")).select([
+        A_k = A.filter(~pl.col("api_is_rent")).select([
             pl.col("api_row_id"),
             pl.lit(None, dtype=pl.Int64).alias("erp_row_id"),
             "tenant_id",
@@ -1899,7 +1857,7 @@ def transform(
 
     # ---------- 07 FALLBACK BALANCE DAY (N:M por saldo diário) ----------
     if not A.is_empty() and not E.is_empty():
-        A_fb = A.filter(~pl.col("api_is_bankfees")).select([
+        A_fb = A.select([
             "api_row_id",
             "tenant_id",
             "bank_code",
