@@ -230,7 +230,7 @@ def load_api_from_pg() -> pl.DataFrame:
         & (pl.col("api_optype_upper") == "PACOTE_TARIFA_SERVICOS")
     )
 
-    txn_time_ref = pl.coalesce([pl.col("date_ts_br"), pl.col("date_ts_utc"), pl.col("date")])
+    txn_time_ref = pl.coalesce([pl.col("date"), pl.col("date_ts_utc"), pl.col("date_ts_br")])
     txn_seconds = (
         txn_time_ref.dt.hour().cast(pl.Int64) * 3600
         + txn_time_ref.dt.minute().cast(pl.Int64) * 60
