@@ -257,7 +257,7 @@ def load_api_from_pg() -> pl.DataFrame:
         )
     )
 
-    d_plus_2_rules = bankfees_carga_crt_rule
+    d_plus_2_rules = pl.lit(False)
 
     d_minus_1_rules = (
         (pl.col("categoryid") == "15030000")
@@ -273,6 +273,7 @@ def load_api_from_pg() -> pl.DataFrame:
             & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
         )
         | bankfees_package_rule
+        | bankfees_carga_crt_rule
     )
 
     conc_date_base = (
