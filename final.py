@@ -246,15 +246,21 @@ def load_api_from_pg() -> pl.DataFrame:
     )
 
     conc_date = (
-        pl.when(~(d_minus_1_rules | d_minus_2_rules))
+        pl.when(d_minus_1_rules | d_minus_2_rules)
+          # deslocamentos D-1/D-2 nunca podem ficar em fim de semana: volta para sexta
           .then(
-              pl.when(conc_date_base.dt.weekday() == 5)
-                .then(conc_date_base + dt.timedelta(days=2))
-                .when(conc_date_base.dt.weekday() == 6)
-                .then(conc_date_base + dt.timedelta(days=1))
-                .otherwise(conc_date_base)
+              conc_date_base.map_elements(
+                  lambda d: prev_business_day(d) if is_weekend(d) else d,
+                  return_dtype=pl.Date,
+              )
           )
-          .otherwise(conc_date_base)
+          # datas originais em fim de semana vão para a segunda-feira seguinte
+          .otherwise(
+              conc_date_base.map_elements(
+                  lambda d: next_business_day(d) if is_weekend(d) else d,
+                  return_dtype=pl.Date,
+              )
+          )
     )
 
     # 6) Datas derivadas D-1 / D-2 + seleção final
@@ -263,8 +269,8 @@ def load_api_from_pg() -> pl.DataFrame:
         .with_columns([
             conc_date.alias("api_conciliation_date"),
             conc_date.alias("api_date"),
-            (conc_date - dt.timedelta(days=1)).alias("api_date_d1"),
-            (conc_date - dt.timedelta(days=2)).alias("api_date_d2"),
+            shift_business_days(conc_date, -1).alias("api_date_d1"),
+            shift_business_days(conc_date, -2).alias("api_date_d2"),
         ])
         .select([
             "api_row_id", "api_uid", "tenant_id",
