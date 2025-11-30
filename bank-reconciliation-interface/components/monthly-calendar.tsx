@@ -56,7 +56,24 @@ export function MonthlyCalendar({
 
   const getDayData = (day: number) => {
     const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-    return dailyData.find((d) => d.date === dateStr)
+    const existingDay = dailyData.find((d) => d.date === dateStr)
+
+    if (existingDay) {
+      return existingDay
+    }
+
+    return {
+      tenant_id: tenantId,
+      bank_code: bankCode,
+      acc_tail: accTail,
+      date: dateStr,
+      api_matched_abs: 0,
+      erp_matched_abs: 0,
+      api_unrec_abs: 0,
+      erp_unrec_abs: 0,
+      unrec_total_abs: 0,
+      unrec_diff: 0,
+    }
   }
 
   const reconciliatedDays = dailyData.filter((d) => d.unrec_total_abs === 0)
@@ -161,7 +178,12 @@ export function MonthlyCalendar({
 
           {days.map((day, index) => {
             const dayData = day ? getDayData(day) : null
-            const isReconciliated = dayData && dayData.unrec_total_abs === 0
+            const apiTotal = (dayData?.api_matched_abs ?? 0) + (dayData?.api_unrec_abs ?? 0)
+            const erpTotal = (dayData?.erp_matched_abs ?? 0) + (dayData?.erp_unrec_abs ?? 0)
+            const difference = Math.abs(apiTotal - erpTotal)
+            const hasActivity =
+              apiTotal !== 0 || erpTotal !== 0 || (dayData?.unrec_total_abs ?? 0) !== 0
+            const isReconciliated = hasActivity && difference === 0
 
             return (
               <div
@@ -171,7 +193,7 @@ export function MonthlyCalendar({
                     ? "bg-muted"
                     : isReconciliated
                       ? "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900"
-                      : dayData?.unrec_total_abs
+                      : hasActivity
                         ? "bg-orange-50 dark:bg-orange-950 border-orange-200 dark:border-orange-800 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900"
                         : "bg-card border-border"
                 }`}
@@ -185,17 +207,18 @@ export function MonthlyCalendar({
                   <>
                     <div className="text-sm font-semibold text-foreground">{day}</div>
                     {dayData && (
-                      <>
-                        <div className="text-xs mt-1">
-                          <p className="text-muted-foreground">API: {formatCurrency(dayData.api_matched_abs)}</p>
-                          <p className="text-muted-foreground">ERP: {formatCurrency(dayData.erp_matched_abs)}</p>
-                          {dayData.unrec_total_abs > 0 && (
-                            <p className="text-destructive font-semibold mt-1">
-                              ⚠ {formatCurrency(dayData.unrec_total_abs)}
-                            </p>
-                          )}
-                        </div>
-                      </>
+                      <div className="text-xs mt-1 space-y-0.5">
+                        <p className="text-muted-foreground">API: {formatCurrency(apiTotal)}</p>
+                        <p className="text-muted-foreground">ERP: {formatCurrency(erpTotal)}</p>
+                        <p
+                          className={`font-semibold ${difference > 0 ? "text-destructive" : "text-green-600"}`}
+                        >
+                          Diferença: {formatCurrency(difference)}
+                        </p>
+                        {dayData.unrec_total_abs > 0 && (
+                          <p className="text-destructive">Não conciliado: {formatCurrency(dayData.unrec_total_abs)}</p>
+                        )}
+                      </div>
                     )}
                   </>
                 )}

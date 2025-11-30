@@ -31,9 +31,44 @@ export function AnnualSummary({ monthlyData, onMonthClick }: AnnualSummaryProps)
     (a, b) => new Date(a.month).getTime() - new Date(b.month).getTime(),
   )
 
-  const yearLabel = sortedMonths[0]
-    ? new Date(sortedMonths[0].month).getFullYear()
-    : new Date().getFullYear()
+  const has2025Data = sortedMonths.some((data) => new Date(data.month).getFullYear() === 2025)
+  const baseYear = has2025Data || sortedMonths.length === 0
+    ? 2025
+    : new Date(sortedMonths[0].month).getFullYear()
+
+  const monthTemplate = (monthIndex: number): MonthlyData => {
+    const monthKey = `${baseYear}-${String(monthIndex + 1).padStart(2, "0")}-01`
+
+    return {
+      tenant_id: sortedMonths[0]?.tenant_id ?? "",
+      bank_code: sortedMonths[0]?.bank_code ?? "",
+      acc_tail: sortedMonths[0]?.acc_tail ?? "",
+      month: monthKey,
+      api_matched_abs: 0,
+      erp_matched_abs: 0,
+      api_unrec_abs: 0,
+      erp_unrec_abs: 0,
+      unrec_total_abs: 0,
+    }
+  }
+
+  const normalizedBaseYearMonths = Array.from({ length: 12 }, (_, index) => {
+    const monthKey = `${baseYear}-${String(index + 1).padStart(2, "0")}-01`
+    const existing = sortedMonths.find((data) => {
+      const date = new Date(data.month)
+      return date.getFullYear() === baseYear && date.getMonth() === index
+    })
+
+    return existing ?? monthTemplate(index)
+  })
+
+  const otherYears = sortedMonths.filter(
+    (data) => new Date(data.month).getFullYear() !== baseYear,
+  )
+
+  const displayMonths = [...normalizedBaseYearMonths, ...otherYears]
+
+  const yearLabel = baseYear
 
   return (
     <div>
@@ -42,11 +77,11 @@ export function AnnualSummary({ monthlyData, onMonthClick }: AnnualSummaryProps)
         <p className="text-muted-foreground">Clique em um mês para detalhar a conciliação</p>
       </div>
 
-      {sortedMonths.length === 0 ? (
+      {displayMonths.length === 0 ? (
         <p className="text-muted-foreground">Nenhum dado encontrado para o filtro selecionado.</p>
       ) : (
         <div className="space-y-2">
-          {sortedMonths.map((data) => {
+          {displayMonths.map((data) => {
             const totalApi = (data?.api_matched_abs ?? 0) + (data?.api_unrec_abs ?? 0)
             const totalErp = (data?.erp_matched_abs ?? 0) + (data?.erp_unrec_abs ?? 0)
             const unreconciled = data?.unrec_total_abs ?? 0
