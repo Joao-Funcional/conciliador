@@ -46,7 +46,7 @@ export async function GET(request: Request) {
          AND e.tenant_id = $1
          AND a.bank_code = $2
          AND (a.account_number ~ '\\d' AND right(regexp_replace(a.account_number, '\\D', '', 'g'), 8) = $3)
-         AND a.date_br::date = $4`,
+         AND (a.date_br::date = $4 OR e.date_br::date = $4)`,
       [tenantId, bankCode, accTail, date]
     )
 
