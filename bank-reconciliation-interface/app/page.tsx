@@ -1,62 +1,122 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { BankSelector } from "@/components/bank-selector"
-import { AnnualSummary } from "@/components/annual-summary"
-import { MonthlyCalendar } from "@/components/monthly-calendar"
+import { AnnualSummary, MonthlyData } from "@/components/annual-summary"
+import { MonthlyCalendar, DailyData } from "@/components/monthly-calendar"
 import { UnreconciledDetails } from "@/components/unreconciled-details"
-import { mockData } from "@/lib/mock-data"
+
+interface OptionRow {
+  tenant_id: string
+  bank_code: string
+  acc_tail: string
+}
 
 export default function Home() {
-  const [selectedTenant, setSelectedTenant] = useState("anderle")
-  const [selectedBank, setSelectedBank] = useState("237")
-  const [selectedAccount, setSelectedAccount] = useState("7242")
-  const [selectedMonth, setSelectedMonth] = useState<number | null>(null)
-  const [selectedDay, setSelectedDay] = useState<number | null>(null)
+  const [options, setOptions] = useState<OptionRow[]>([])
+  const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([])
+  const [dailyData, setDailyData] = useState<DailyData[]>([])
+  const [selectedTenant, setSelectedTenant] = useState<string>("")
+  const [selectedBank, setSelectedBank] = useState<string>("")
+  const [selectedAccount, setSelectedAccount] = useState<string>("")
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [showReconciled, setShowReconciled] = useState(false)
+  const [loadingSummary, setLoadingSummary] = useState(false)
 
-  const tenants = useMemo(() => {
-    return Array.from(new Set(mockData.daily.map((d) => d.tenant_id)))
+  useEffect(() => {
+    const loadOptions = async () => {
+      const response = await fetch("/api/options")
+      const payload = await response.json()
+      setOptions(payload.options ?? [])
+    }
+
+    loadOptions()
   }, [])
 
+  useEffect(() => {
+    // Ajusta tenant/banco/conta conforme opções disponíveis
+    if (options.length === 0) return
+
+    if (!selectedTenant) {
+      setSelectedTenant(options[0].tenant_id)
+      return
+    }
+
+    const banks = options.filter((o) => o.tenant_id === selectedTenant).map((o) => o.bank_code)
+    if (!banks.includes(selectedBank)) {
+      setSelectedBank(banks[0] ?? "")
+      return
+    }
+
+    const accounts = options
+      .filter((o) => o.tenant_id === selectedTenant && o.bank_code === selectedBank)
+      .map((o) => o.acc_tail)
+    if (!accounts.includes(selectedAccount)) {
+      setSelectedAccount(accounts[0] ?? "")
+      return
+    }
+  }, [options, selectedTenant, selectedBank, selectedAccount])
+
+  useEffect(() => {
+    const fetchSummary = async () => {
+      if (!selectedTenant || !selectedBank || !selectedAccount) return
+      setLoadingSummary(true)
+      setSelectedMonth(null)
+      setSelectedDate(null)
+      setShowReconciled(false)
+
+      const params = new URLSearchParams({
+        tenant: selectedTenant,
+        bank: selectedBank,
+        accTail: selectedAccount,
+      })
+
+      const response = await fetch(`/api/summary?${params.toString()}`)
+      if (response.ok) {
+        const payload = await response.json()
+        setMonthlyData(payload.monthly ?? [])
+        setDailyData(payload.daily ?? [])
+      } else {
+        setMonthlyData([])
+        setDailyData([])
+      }
+      setLoadingSummary(false)
+    }
+
+    fetchSummary()
+  }, [selectedTenant, selectedBank, selectedAccount])
+
+  const tenants = useMemo(() => {
+    return Array.from(new Set(options.map((d) => d.tenant_id)))
+  }, [options])
+
   const banks = useMemo(() => {
-    return Array.from(new Set(mockData.daily.filter((d) => d.tenant_id === selectedTenant).map((d) => d.bank_code)))
-  }, [selectedTenant])
+    return Array.from(new Set(options.filter((d) => d.tenant_id === selectedTenant).map((d) => d.bank_code)))
+  }, [options, selectedTenant])
 
   const accounts = useMemo(() => {
     return Array.from(
       new Set(
-        mockData.daily
+        options
           .filter((d) => d.tenant_id === selectedTenant && d.bank_code === selectedBank)
           .map((d) => d.acc_tail),
       ),
     )
-  }, [selectedTenant, selectedBank])
-
-  const monthlyData = useMemo(() => {
-    return mockData.monthly.filter(
-      (m) => m.tenant_id === selectedTenant && m.bank_code === selectedBank && m.acc_tail === selectedAccount,
-    )
-  }, [selectedTenant, selectedBank, selectedAccount])
-
-  const dailyData = useMemo(() => {
-    return mockData.daily.filter(
-      (d) => d.tenant_id === selectedTenant && d.bank_code === selectedBank && d.acc_tail === selectedAccount,
-    )
-  }, [selectedTenant, selectedBank, selectedAccount])
+  }, [options, selectedTenant, selectedBank])
 
   const handleBackFromMonth = () => {
     setSelectedMonth(null)
-    setSelectedDay(null)
-  }
-
-  const handleDayClick = (day: number) => {
-    setSelectedDay(day)
+    setSelectedDate(null)
   }
 
   const handleBackFromDay = () => {
-    setSelectedDay(null)
+    setSelectedDate(null)
   }
+
+  const dailyForMonth = selectedMonth
+    ? dailyData.filter((d) => d.date.startsWith(selectedMonth.slice(0, 7)))
+    : []
 
   return (
     <main className="min-h-screen bg-background">
@@ -78,22 +138,27 @@ export default function Home() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {selectedDay !== null ? (
+        {loadingSummary ? (
+          <p className="text-muted-foreground">Carregando dados de conciliação...</p>
+        ) : selectedDate !== null && selectedMonth ? (
           <UnreconciledDetails
             tenantId={selectedTenant}
             bankCode={selectedBank}
             accTail={selectedAccount}
-            date={new Date(2025, selectedMonth! - 1, selectedDay).toISOString().split("T")[0]}
+            date={selectedDate}
             showReconciled={showReconciled}
             onShowReconciledChange={setShowReconciled}
             onBack={handleBackFromDay}
           />
         ) : selectedMonth !== null ? (
           <MonthlyCalendar
-            month={selectedMonth}
-            dailyData={dailyData}
-            onDayClick={handleDayClick}
+            monthDate={selectedMonth}
+            dailyData={dailyForMonth}
+            onDayClick={setSelectedDate}
             onBack={handleBackFromMonth}
+            tenantId={selectedTenant}
+            bankCode={selectedBank}
+            accTail={selectedAccount}
           />
         ) : (
           <AnnualSummary monthlyData={monthlyData} onMonthClick={setSelectedMonth} />
