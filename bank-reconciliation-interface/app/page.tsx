@@ -75,8 +75,36 @@ export default function Home() {
       const response = await fetch(`/api/summary?${params.toString()}`)
       if (response.ok) {
         const payload = await response.json()
-        setMonthlyData(payload.monthly ?? [])
-        setDailyData(payload.daily ?? [])
+        const monthlyMap = new Map<string, MonthlyData>()
+        const dailyMap = new Map<string, DailyData>()
+
+        ;(payload.monthly ?? []).forEach((item: MonthlyData) => {
+          const existing = monthlyMap.get(item.month)
+          monthlyMap.set(item.month, {
+            ...item,
+            api_matched_abs: (existing?.api_matched_abs ?? 0) + (item.api_matched_abs ?? 0),
+            erp_matched_abs: (existing?.erp_matched_abs ?? 0) + (item.erp_matched_abs ?? 0),
+            api_unrec_abs: (existing?.api_unrec_abs ?? 0) + (item.api_unrec_abs ?? 0),
+            erp_unrec_abs: (existing?.erp_unrec_abs ?? 0) + (item.erp_unrec_abs ?? 0),
+            unrec_total_abs: (existing?.unrec_total_abs ?? 0) + (item.unrec_total_abs ?? 0),
+          })
+        })
+
+        ;(payload.daily ?? []).forEach((item: DailyData) => {
+          const existing = dailyMap.get(item.date)
+          dailyMap.set(item.date, {
+            ...item,
+            api_matched_abs: (existing?.api_matched_abs ?? 0) + (item.api_matched_abs ?? 0),
+            erp_matched_abs: (existing?.erp_matched_abs ?? 0) + (item.erp_matched_abs ?? 0),
+            api_unrec_abs: (existing?.api_unrec_abs ?? 0) + (item.api_unrec_abs ?? 0),
+            erp_unrec_abs: (existing?.erp_unrec_abs ?? 0) + (item.erp_unrec_abs ?? 0),
+            unrec_total_abs: (existing?.unrec_total_abs ?? 0) + (item.unrec_total_abs ?? 0),
+            unrec_diff: (existing?.unrec_diff ?? 0) + (item.unrec_diff ?? 0),
+          })
+        })
+
+        setMonthlyData(Array.from(monthlyMap.values()))
+        setDailyData(Array.from(dailyMap.values()))
       } else {
         setMonthlyData([])
         setDailyData([])
