@@ -178,12 +178,14 @@ export function MonthlyCalendar({
 
           {days.map((day, index) => {
             const dayData = day ? getDayData(day) : null
-            const apiTotal = (dayData?.api_matched_abs ?? 0) + (dayData?.api_unrec_abs ?? 0)
-            const erpTotal = (dayData?.erp_matched_abs ?? 0) + (dayData?.erp_unrec_abs ?? 0)
-            const difference = Math.abs(apiTotal - erpTotal)
+            const apiConciliated = dayData?.api_matched_abs ?? 0
+            const erpConciliated = dayData?.erp_matched_abs ?? 0
+            const notReconciled =
+              dayData?.unrec_total_abs ??
+              ((dayData?.api_unrec_abs ?? 0) + (dayData?.erp_unrec_abs ?? 0))
             const hasActivity =
-              apiTotal !== 0 || erpTotal !== 0 || (dayData?.unrec_total_abs ?? 0) !== 0
-            const isReconciliated = hasActivity && difference === 0
+              apiConciliated !== 0 || erpConciliated !== 0 || notReconciled !== 0
+            const isReconciliated = hasActivity && notReconciled === 0
 
             return (
               <div
@@ -208,16 +210,13 @@ export function MonthlyCalendar({
                     <div className="text-sm font-semibold text-foreground">{day}</div>
                     {dayData && (
                       <div className="text-xs mt-1 space-y-0.5">
-                        <p className="text-muted-foreground">API: {formatCurrency(apiTotal)}</p>
-                        <p className="text-muted-foreground">ERP: {formatCurrency(erpTotal)}</p>
+                        <p className="text-muted-foreground">API: {formatCurrency(apiConciliated)}</p>
+                        <p className="text-muted-foreground">ERP: {formatCurrency(erpConciliated)}</p>
                         <p
-                          className={`font-semibold ${difference > 0 ? "text-destructive" : "text-green-600"}`}
+                          className={`font-semibold ${notReconciled > 0 ? "text-destructive" : "text-green-600"}`}
                         >
-                          Diferença: {formatCurrency(difference)}
+                          Não conciliado: {formatCurrency(notReconciled)}
                         </p>
-                        {dayData.unrec_total_abs > 0 && (
-                          <p className="text-destructive">Não conciliado: {formatCurrency(dayData.unrec_total_abs)}</p>
-                        )}
                       </div>
                     )}
                   </>
