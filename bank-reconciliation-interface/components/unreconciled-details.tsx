@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft } from "lucide-react"
@@ -44,6 +44,14 @@ type Match = {
   api_desc: string
   erp_amount: number
   erp_desc: string
+}
+
+type GroupedMatch = {
+  api_uid: string
+  api_amount: number
+  api_desc: string
+  stage: string
+  erp: Array<Pick<Match, "erp_uid" | "erp_amount" | "erp_desc">>
 }
 
 export function UnreconciledDetails({
@@ -104,6 +112,30 @@ export function UnreconciledDetails({
 
   const dateObj = new Date(date)
   const formattedDate = dateObj.toLocaleDateString("pt-BR")
+
+  const groupedMatches = useMemo(() => {
+    const groups: Record<string, GroupedMatch> = {}
+
+    matches.forEach((match) => {
+      if (!groups[match.api_uid]) {
+        groups[match.api_uid] = {
+          api_uid: match.api_uid,
+          api_amount: match.api_amount,
+          api_desc: match.api_desc,
+          stage: match.stage,
+          erp: [],
+        }
+      }
+
+      groups[match.api_uid].erp.push({
+        erp_uid: match.erp_uid,
+        erp_amount: match.erp_amount,
+        erp_desc: match.erp_desc,
+      })
+    })
+
+    return Object.values(groups)
+  }, [matches])
 
   return (
     <div>
@@ -183,34 +215,45 @@ export function UnreconciledDetails({
             </div>
           </div>
 
-          {showReconciled && matches.length > 0 && (
+          {showReconciled && (
             <div className="mt-8">
               <h3 className="text-lg font-semibold text-foreground mb-4">Transações Conciliadas</h3>
-              <div className="space-y-3">
-                {matches.map((match) => (
-                  <Card
-                    key={`${match.api_uid}-${match.erp_uid}`}
-                    className="p-4 bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800"
-                  >
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
+              {groupedMatches.length > 0 ? (
+                <div className="space-y-3">
+                  {groupedMatches.map((match) => (
+                    <Card
+                      key={match.api_uid}
+                      className="p-4 bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800"
+                    >
+                      <div className="mb-3">
                         <p className="text-xs text-muted-foreground mb-1">API</p>
                         <p className="font-semibold text-foreground text-sm">{formatCurrency(match.api_amount)}</p>
                         <p className="text-xs text-muted-foreground mt-1">{match.api_desc}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Estágio: {match.stage}</p>
                       </div>
-                      <div className="flex items-center justify-center">
-                        <span className="text-green-600 font-bold">↔</span>
+
+                      <div className="space-y-2">
+                        {match.erp.map((erpMatch) => (
+                          <div
+                            key={`${match.api_uid}-${erpMatch.erp_uid}`}
+                            className="grid grid-cols-3 gap-2 items-start"
+                          >
+                            <div className="text-xs text-muted-foreground">↳ ERP</div>
+                            <div className="col-span-2">
+                              <p className="font-semibold text-foreground text-sm">
+                                {formatCurrency(erpMatch.erp_amount)}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">{erpMatch.erp_desc}</p>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">ERP</p>
-                        <p className="font-semibold text-foreground text-sm">{formatCurrency(match.erp_amount)}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{match.erp_desc}</p>
-                      </div>
-                    </div>
-                    <div className="mt-2 text-xs text-muted-foreground">Estágio: {match.stage}</div>
-                  </Card>
-                ))}
-              </div>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-muted-foreground">Nenhuma transação conciliada para este dia.</div>
+              )}
             </div>
           )}
         </>
