@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft } from "lucide-react"
+import { parseDateOnly } from "@/lib/date"
 
 export interface UnreconciledDetailsProps {
   tenantId: string
@@ -102,7 +103,7 @@ export function UnreconciledDetails({
     }).format(value)
   }
 
-  const dateObj = new Date(date)
+  const dateObj = parseDateOnly(date)
   const formattedDate = dateObj.toLocaleDateString("pt-BR")
 
   return (

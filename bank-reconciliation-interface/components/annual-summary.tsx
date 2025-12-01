@@ -1,6 +1,7 @@
 "use client"
 
 import { Card } from "@/components/ui/card"
+import { parseDateOnly } from "@/lib/date"
 
 export interface MonthlyData {
   tenant_id: string
@@ -27,13 +28,27 @@ export function AnnualSummary({ monthlyData, onMonthClick }: AnnualSummaryProps)
     }).format(value)
   }
 
-  const sortedMonths = [...monthlyData].sort(
-    (a, b) => new Date(a.month).getTime() - new Date(b.month).getTime(),
-  )
+  const availableYears = monthlyData.map((data) => parseDateOnly(data.month).getFullYear())
+  const yearLabel = availableYears.length > 0 ? Math.max(...availableYears) : new Date().getFullYear()
 
-  const yearLabel = sortedMonths[0]
-    ? new Date(sortedMonths[0].month).getFullYear()
-    : new Date().getFullYear()
+  const monthlyMap = new Map(monthlyData.map((data) => [data.month, data]))
+
+  const defaultValues: MonthlyData = {
+    tenant_id: monthlyData[0]?.tenant_id ?? "",
+    bank_code: monthlyData[0]?.bank_code ?? "",
+    acc_tail: monthlyData[0]?.acc_tail ?? "",
+    month: "",
+    api_matched_abs: 0,
+    erp_matched_abs: 0,
+    api_unrec_abs: 0,
+    erp_unrec_abs: 0,
+    unrec_total_abs: 0,
+  }
+
+  const months = Array.from({ length: 12 }, (_, index) => {
+    const monthKey = `${yearLabel}-${String(index + 1).padStart(2, "0")}-01`
+    return monthlyMap.get(monthKey) ?? { ...defaultValues, month: monthKey }
+  })
 
   return (
     <div>
@@ -42,15 +57,15 @@ export function AnnualSummary({ monthlyData, onMonthClick }: AnnualSummaryProps)
         <p className="text-muted-foreground">Clique em um mês para detalhar a conciliação</p>
       </div>
 
-      {sortedMonths.length === 0 ? (
+      {months.length === 0 ? (
         <p className="text-muted-foreground">Nenhum dado encontrado para o filtro selecionado.</p>
       ) : (
         <div className="space-y-2">
-          {sortedMonths.map((data) => {
+          {months.map((data) => {
             const totalApi = (data?.api_matched_abs ?? 0) + (data?.api_unrec_abs ?? 0)
             const totalErp = (data?.erp_matched_abs ?? 0) + (data?.erp_unrec_abs ?? 0)
             const unreconciled = data?.unrec_total_abs ?? 0
-            const label = new Date(data.month).toLocaleString("pt-BR", { month: "short" })
+            const label = parseDateOnly(data.month).toLocaleString("pt-BR", { month: "short" })
 
             return (
               <Card
