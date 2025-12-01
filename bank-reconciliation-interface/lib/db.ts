@@ -18,3 +18,7 @@ export async function query<T = any>(text: string, params: any[] = []) {
     client.release()
   }
 }
+
+export async function getClient() {
+  return pool.connect()
+}
