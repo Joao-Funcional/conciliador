@@ -17,7 +17,7 @@ export async function GET(request: Request) {
       `SELECT tenant_id, bank_code, acc_tail, date::text AS date,
               COALESCE(amount,0)::float AS amount, api_id, desc_norm
        FROM gold_unreconciled_api
-       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date = $4
+       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date = $4::date
        ORDER BY amount DESC`,
       [tenantId, bankCode, accTail, date]
     )
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
       `SELECT tenant_id, bank_code, acc_tail, date::text AS date,
               COALESCE(amount,0)::float AS amount, cd_lancamento, desc_norm
        FROM gold_unreconciled_erp
-       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date = $4
+       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date = $4::date
        ORDER BY amount DESC`,
       [tenantId, bankCode, accTail, date]
     )
@@ -38,7 +38,7 @@ export async function GET(request: Request) {
          UNION ALL
          SELECT api_uid, erp_uid, NULL::text AS stage, NULL::int AS prio, NULL::float AS ddiff
          FROM gold_conciliation_daily
-         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date::date = $4
+         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date::date = $4::date
            AND (api_uid IS NOT NULL OR erp_uid IS NOT NULL)
        )
        SELECT COALESCE(mp.api_uid, mp.erp_uid, '') AS api_uid,
@@ -61,7 +61,7 @@ export async function GET(request: Request) {
               (a.account_number ~ '\\d' AND right(regexp_replace(a.account_number, '\\D', '', 'g'), 8) = $3)
            OR (e.account_number ~ '\\d' AND right(regexp_replace(e.account_number, '\\D', '', 'g'), 8) = $3)
          )
-         AND ((a.date_br::date = $4) OR (e.date_br::date = $4))`,
+         AND ((a.date_br::date = $4::date) OR (e.date_br::date = $4::date))`,
       [tenantId, bankCode, accTail, date]
     )
 

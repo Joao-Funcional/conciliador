@@ -66,7 +66,11 @@ export function AnnualSummary({ monthlyData, onMonthClick }: AnnualSummaryProps)
     (data) => new Date(data.month).getFullYear() !== baseYear,
   )
 
-  const displayMonths = [...normalizedBaseYearMonths, ...otherYears]
+  const displayMonths = Array.from(
+    new Map(
+      [...normalizedBaseYearMonths, ...otherYears].map((item) => [item.month, item]),
+    ).values(),
+  )
 
   const yearLabel = baseYear
 
