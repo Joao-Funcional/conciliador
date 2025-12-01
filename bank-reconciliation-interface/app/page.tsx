@@ -78,15 +78,17 @@ export default function Home() {
         const monthlyMap = new Map<string, MonthlyData>()
         const dailyMap = new Map<string, DailyData>()
 
+        const toNumber = (value: unknown) => Number(value ?? 0)
+
         ;(payload.monthly ?? []).forEach((item: MonthlyData) => {
           const existing = monthlyMap.get(item.month)
           monthlyMap.set(item.month, {
             ...item,
-            api_matched_abs: (existing?.api_matched_abs ?? 0) + (item.api_matched_abs ?? 0),
-            erp_matched_abs: (existing?.erp_matched_abs ?? 0) + (item.erp_matched_abs ?? 0),
-            api_unrec_abs: (existing?.api_unrec_abs ?? 0) + (item.api_unrec_abs ?? 0),
-            erp_unrec_abs: (existing?.erp_unrec_abs ?? 0) + (item.erp_unrec_abs ?? 0),
-            unrec_total_abs: (existing?.unrec_total_abs ?? 0) + (item.unrec_total_abs ?? 0),
+            api_matched_abs: toNumber(existing?.api_matched_abs) + toNumber(item.api_matched_abs),
+            erp_matched_abs: toNumber(existing?.erp_matched_abs) + toNumber(item.erp_matched_abs),
+            api_unrec_abs: toNumber(existing?.api_unrec_abs) + toNumber(item.api_unrec_abs),
+            erp_unrec_abs: toNumber(existing?.erp_unrec_abs) + toNumber(item.erp_unrec_abs),
+            unrec_total_abs: toNumber(existing?.unrec_total_abs) + toNumber(item.unrec_total_abs),
           })
         })
 
@@ -94,12 +96,12 @@ export default function Home() {
           const existing = dailyMap.get(item.date)
           dailyMap.set(item.date, {
             ...item,
-            api_matched_abs: (existing?.api_matched_abs ?? 0) + (item.api_matched_abs ?? 0),
-            erp_matched_abs: (existing?.erp_matched_abs ?? 0) + (item.erp_matched_abs ?? 0),
-            api_unrec_abs: (existing?.api_unrec_abs ?? 0) + (item.api_unrec_abs ?? 0),
-            erp_unrec_abs: (existing?.erp_unrec_abs ?? 0) + (item.erp_unrec_abs ?? 0),
-            unrec_total_abs: (existing?.unrec_total_abs ?? 0) + (item.unrec_total_abs ?? 0),
-            unrec_diff: (existing?.unrec_diff ?? 0) + (item.unrec_diff ?? 0),
+            api_matched_abs: toNumber(existing?.api_matched_abs) + toNumber(item.api_matched_abs),
+            erp_matched_abs: toNumber(existing?.erp_matched_abs) + toNumber(item.erp_matched_abs),
+            api_unrec_abs: toNumber(existing?.api_unrec_abs) + toNumber(item.api_unrec_abs),
+            erp_unrec_abs: toNumber(existing?.erp_unrec_abs) + toNumber(item.erp_unrec_abs),
+            unrec_total_abs: toNumber(existing?.unrec_total_abs) + toNumber(item.unrec_total_abs),
+            unrec_diff: toNumber(existing?.unrec_diff) + toNumber(item.unrec_diff),
           })
         })
 
