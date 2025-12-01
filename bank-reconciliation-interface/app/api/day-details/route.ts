@@ -17,7 +17,7 @@ export async function GET(request: Request) {
       `SELECT tenant_id, bank_code, acc_tail, date::text AS date,
               COALESCE(amount,0)::float AS amount, api_id, desc_norm
        FROM gold_unreconciled_api
-       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date = $4
+       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date = $4::date
        ORDER BY amount DESC`,
       [tenantId, bankCode, accTail, date]
     )
@@ -26,27 +26,42 @@ export async function GET(request: Request) {
       `SELECT tenant_id, bank_code, acc_tail, date::text AS date,
               COALESCE(amount,0)::float AS amount, cd_lancamento, desc_norm
        FROM gold_unreconciled_erp
-       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date = $4
+       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date = $4::date
        ORDER BY amount DESC`,
       [tenantId, bankCode, accTail, date]
     )
 
     const matches = await query(
-      `SELECT m.api_uid, m.erp_uid, m.stage, m.prio, m.ddiff,
+      `WITH matched_pairs AS (
+         SELECT api_uid, erp_uid, stage, prio, ddiff
+         FROM gold_conciliation_matches
+         UNION ALL
+         SELECT api_uid, erp_uid, NULL::text AS stage, NULL::int AS prio, NULL::float AS ddiff
+         FROM gold_conciliation_daily
+         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date::date = $4::date
+           AND (api_uid IS NOT NULL OR erp_uid IS NOT NULL)
+       )
+       SELECT COALESCE(mp.api_uid, mp.erp_uid, '') AS api_uid,
+              COALESCE(mp.erp_uid, '') AS erp_uid,
+              COALESCE(mp.stage, 'Conciliado') AS stage,
+              COALESCE(mp.prio, 0) AS prio,
+              COALESCE(mp.ddiff, 0)::float AS ddiff,
               a.amount AS api_amount,
               a.descriptionraw AS api_desc,
               a.date_br::date AS api_date,
               e.amount_client AS erp_amount,
               e.description_client AS erp_desc,
               e.date_br::date AS erp_date
-       FROM gold_conciliation_matches m
-       JOIN silver_api_staging a ON m.api_uid = a.id
-       JOIN silver_erp_staging e ON m.erp_uid = e.cd_lancamento
-       WHERE a.tenant_id = $1
-         AND e.tenant_id = $1
-         AND a.bank_code = $2
-         AND (a.account_number ~ '\\d' AND right(regexp_replace(a.account_number, '\\D', '', 'g'), 8) = $3)
-         AND (a.date_br::date = $4 OR e.date_br::date = $4)`,
+       FROM matched_pairs mp
+       LEFT JOIN silver_api_staging a ON mp.api_uid = a.id
+       LEFT JOIN silver_erp_staging e ON mp.erp_uid = e.cd_lancamento
+       WHERE (a.tenant_id = $1 OR e.tenant_id = $1)
+         AND (a.bank_code = $2 OR e.bank_code = $2)
+         AND (
+              (a.account_number ~ '\\d' AND right(regexp_replace(a.account_number, '\\D', '', 'g'), 8) = $3)
+           OR (e.account_number ~ '\\d' AND right(regexp_replace(e.account_number, '\\D', '', 'g'), 8) = $3)
+         )
+         AND ((a.date_br::date = $4::date) OR (e.date_br::date = $4::date))`,
       [tenantId, bankCode, accTail, date]
     )
 
