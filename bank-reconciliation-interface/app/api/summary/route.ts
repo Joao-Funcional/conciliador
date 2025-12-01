@@ -39,6 +39,20 @@ export async function GET(request: Request) {
          FROM gold_unreconciled_erp
          WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
        ),
+       daily_totals AS (
+         SELECT tenant_id,
+                bank_code,
+                acc_tail,
+                date::date AS date,
+                SUM(COALESCE(api_matched_abs, 0)) AS api_matched_abs,
+                SUM(COALESCE(erp_matched_abs, 0)) AS erp_matched_abs,
+                SUM(COALESCE(api_unrec_abs, 0)) AS api_unrec_abs,
+                SUM(COALESCE(erp_unrec_abs, 0)) AS erp_unrec_abs,
+                SUM(COALESCE(unrec_diff, 0)) AS unrec_diff
+         FROM gold_conciliation_daily
+         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
+         GROUP BY tenant_id, bank_code, acc_tail, date
+       ),
        api_unrec AS (
          SELECT tenant_id, bank_code, acc_tail, date::date AS date, SUM(amount) AS api_unrec_abs
          FROM gold_unreconciled_api
@@ -55,18 +69,21 @@ export async function GET(request: Request) {
               d.bank_code,
               d.acc_tail,
               d.date::text AS date,
-              COALESCE(gcd.api_matched_abs, 0)::float AS api_matched_abs,
-              COALESCE(gcd.erp_matched_abs, 0)::float AS erp_matched_abs,
-              COALESCE(au.api_unrec_abs, 0)::float AS api_unrec_abs,
-              COALESCE(eu.erp_unrec_abs, 0)::float AS erp_unrec_abs,
-              (COALESCE(au.api_unrec_abs, 0) + COALESCE(eu.erp_unrec_abs, 0))::float AS unrec_total_abs,
-              COALESCE(gcd.unrec_diff, 0)::float AS unrec_diff
+              COALESCE(dt.api_matched_abs, 0)::float AS api_matched_abs,
+              COALESCE(dt.erp_matched_abs, 0)::float AS erp_matched_abs,
+              COALESCE(dt.api_unrec_abs, au.api_unrec_abs, 0)::float AS api_unrec_abs,
+              COALESCE(dt.erp_unrec_abs, eu.erp_unrec_abs, 0)::float AS erp_unrec_abs,
+              (
+                COALESCE(dt.api_unrec_abs, au.api_unrec_abs, 0) +
+                COALESCE(dt.erp_unrec_abs, eu.erp_unrec_abs, 0)
+              )::float AS unrec_total_abs,
+              COALESCE(dt.unrec_diff, 0)::float AS unrec_diff
        FROM all_days d
-       LEFT JOIN gold_conciliation_daily gcd
-         ON gcd.tenant_id = d.tenant_id
-        AND gcd.bank_code = d.bank_code
-        AND gcd.acc_tail = d.acc_tail
-        AND gcd.date::date = d.date
+       LEFT JOIN daily_totals dt
+         ON dt.tenant_id = d.tenant_id
+        AND dt.bank_code = d.bank_code
+        AND dt.acc_tail = d.acc_tail
+        AND dt.date = d.date
        LEFT JOIN api_unrec au
          ON au.tenant_id = d.tenant_id
         AND au.bank_code = d.bank_code
