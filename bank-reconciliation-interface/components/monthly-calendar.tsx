@@ -180,9 +180,10 @@ export function MonthlyCalendar({
             const dayData = day ? getDayData(day) : null
             const apiConciliated = dayData?.api_matched_abs ?? 0
             const erpConciliated = dayData?.erp_matched_abs ?? 0
+            const apiNotReconciled = dayData?.api_unrec_abs ?? 0
+            const erpNotReconciled = dayData?.erp_unrec_abs ?? 0
             const notReconciled =
-              dayData?.unrec_total_abs ??
-              ((dayData?.api_unrec_abs ?? 0) + (dayData?.erp_unrec_abs ?? 0))
+              dayData?.unrec_total_abs ?? apiNotReconciled + erpNotReconciled
             const hasActivity =
               apiConciliated !== 0 || erpConciliated !== 0 || notReconciled !== 0
             const isReconciliated = hasActivity && notReconciled === 0
@@ -212,10 +213,16 @@ export function MonthlyCalendar({
                       <div className="text-xs mt-1 space-y-0.5">
                         <p className="text-muted-foreground">API: {formatCurrency(apiConciliated)}</p>
                         <p className="text-muted-foreground">ERP: {formatCurrency(erpConciliated)}</p>
+                        <p className="text-muted-foreground">
+                          Não conciliado API: {formatCurrency(apiNotReconciled)}
+                        </p>
+                        <p className="text-muted-foreground">
+                          Não conciliado ERP: {formatCurrency(erpNotReconciled)}
+                        </p>
                         <p
                           className={`font-semibold ${notReconciled > 0 ? "text-destructive" : "text-green-600"}`}
                         >
-                          Não conciliado: {formatCurrency(notReconciled)}
+                          Total não conciliado: {formatCurrency(notReconciled)}
                         </p>
                       </div>
                     )}
