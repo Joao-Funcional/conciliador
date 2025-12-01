@@ -13,68 +13,32 @@ export async function GET(request: Request) {
   }
 
   try {
-    const normalizedDate =
-      "CASE WHEN date::text ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN date::date ELSE to_date(date::text, 'DD/MM/YYYY') END"
-
     const unreconciledApi = await query(
-      `WITH normalized_api AS (
-         SELECT tenant_id,
-                bank_code,
-                acc_tail,
-                ${normalizedDate} AS date,
-                COALESCE(amount, 0)::float AS amount,
-                api_id,
-                desc_norm
-         FROM gold_unreconciled_api
-         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
-       )
-       SELECT tenant_id, bank_code, acc_tail, to_char(date, 'YYYY-MM-DD') AS date,
-              amount, api_id, desc_norm
-       FROM normalized_api
-       WHERE date = to_date($4, 'YYYY-MM-DD')
+      `SELECT tenant_id, bank_code, acc_tail, date::text AS date,
+              COALESCE(amount,0)::float AS amount, api_id, desc_norm
+       FROM gold_unreconciled_api
+       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date = $4::date
        ORDER BY amount DESC`,
       [tenantId, bankCode, accTail, date]
     )
 
     const unreconciledErp = await query(
-      `WITH normalized_erp AS (
-         SELECT tenant_id,
-                bank_code,
-                acc_tail,
-                ${normalizedDate} AS date,
-                COALESCE(amount, 0)::float AS amount,
-                cd_lancamento,
-                desc_norm
-         FROM gold_unreconciled_erp
-         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
-       )
-       SELECT tenant_id, bank_code, acc_tail, to_char(date, 'YYYY-MM-DD') AS date,
-              amount, cd_lancamento, desc_norm
-       FROM normalized_erp
-       WHERE date = to_date($4, 'YYYY-MM-DD')
+      `SELECT tenant_id, bank_code, acc_tail, date::text AS date,
+              COALESCE(amount,0)::float AS amount, cd_lancamento, desc_norm
+       FROM gold_unreconciled_erp
+       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date = $4::date
        ORDER BY amount DESC`,
       [tenantId, bankCode, accTail, date]
     )
 
     const matches = await query(
-      `WITH normalized_daily AS (
-         SELECT tenant_id,
-                bank_code,
-                acc_tail,
-                ${normalizedDate} AS date,
-                api_uid,
-                erp_uid,
-                unrec_diff
-         FROM gold_conciliation_daily
-         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
-       ),
-       matched_pairs AS (
+      `WITH matched_pairs AS (
          SELECT api_uid, erp_uid, stage, prio, ddiff
          FROM gold_conciliation_matches
          UNION ALL
          SELECT api_uid, erp_uid, NULL::text AS stage, NULL::int AS prio, NULL::float AS ddiff
-         FROM normalized_daily
-         WHERE date = to_date($4, 'YYYY-MM-DD')
+         FROM gold_conciliation_daily
+         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date::date = $4::date
            AND (api_uid IS NOT NULL OR erp_uid IS NOT NULL)
        )
        SELECT COALESCE(mp.api_uid, mp.erp_uid, '') AS api_uid,
@@ -97,7 +61,7 @@ export async function GET(request: Request) {
               (a.account_number ~ '\\d' AND right(regexp_replace(a.account_number, '\\D', '', 'g'), 8) = $3)
            OR (e.account_number ~ '\\d' AND right(regexp_replace(e.account_number, '\\D', '', 'g'), 8) = $3)
          )
-         AND ((a.date_br::date = to_date($4, 'YYYY-MM-DD')) OR (e.date_br::date = to_date($4, 'YYYY-MM-DD')))`,
+         AND ((a.date_br::date = $4::date) OR (e.date_br::date = $4::date))`,
       [tenantId, bankCode, accTail, date]
     )
 

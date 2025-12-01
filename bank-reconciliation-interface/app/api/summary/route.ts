@@ -12,98 +12,63 @@ export async function GET(request: Request) {
   }
 
   try {
-    const normalizedDate =
-      "CASE WHEN date::text ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN date::date ELSE to_date(date::text, 'DD/MM/YYYY') END"
-
     const monthly = await query(
-      `WITH normalized_daily AS (
-         SELECT tenant_id,
-                bank_code,
-                acc_tail,
-                ${normalizedDate} AS date,
-                api_matched_abs,
-                erp_matched_abs,
-                api_unrec_abs,
-                erp_unrec_abs,
-                unrec_total_abs,
-                unrec_diff
-         FROM gold_conciliation_daily
-         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
-       )
-       SELECT tenant_id,
-              bank_code,
-              acc_tail,
-              to_char(date_trunc('month', date), 'YYYY-MM-01') AS month,
-              SUM(COALESCE(api_matched_abs, 0))::float AS api_matched_abs,
-              SUM(COALESCE(erp_matched_abs, 0))::float AS erp_matched_abs,
-              SUM(COALESCE(api_unrec_abs, 0))::float AS api_unrec_abs,
-              SUM(COALESCE(erp_unrec_abs, 0))::float AS erp_unrec_abs,
-              SUM(COALESCE(unrec_total_abs, 0))::float AS unrec_total_abs
-       FROM normalized_daily
-       GROUP BY tenant_id, bank_code, acc_tail, date_trunc('month', date)
-       ORDER BY date_trunc('month', date)`,
+      `SELECT tenant_id, bank_code, acc_tail, month::text AS month,
+              COALESCE(api_matched_abs,0)::float AS api_matched_abs,
+              COALESCE(erp_matched_abs,0)::float AS erp_matched_abs,
+              COALESCE(api_unrec_abs,0)::float AS api_unrec_abs,
+              COALESCE(erp_unrec_abs,0)::float AS erp_unrec_abs,
+              COALESCE(unrec_total_abs,0)::float AS unrec_total_abs
+       FROM gold_conciliation_monthly
+       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
+       ORDER BY month`,
       [tenantId, bankCode, accTail]
     )
 
     const daily = await query(
-      `WITH normalized_daily AS (
-         SELECT tenant_id,
-                bank_code,
-                acc_tail,
-                ${normalizedDate} AS date,
-                api_matched_abs,
-                erp_matched_abs,
-                api_unrec_abs,
-                erp_unrec_abs,
-                unrec_total_abs,
-                unrec_diff
+      `WITH all_days AS (
+         SELECT tenant_id, bank_code, acc_tail, date::date AS date
          FROM gold_conciliation_daily
          WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
-       ),
-       normalized_api AS (
-         SELECT tenant_id, bank_code, acc_tail, ${normalizedDate} AS date, amount
+         UNION
+         SELECT tenant_id, bank_code, acc_tail, date::date AS date
          FROM gold_unreconciled_api
          WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
-       ),
-       normalized_erp AS (
-         SELECT tenant_id, bank_code, acc_tail, ${normalizedDate} AS date, amount
+         UNION
+         SELECT tenant_id, bank_code, acc_tail, date::date AS date
          FROM gold_unreconciled_erp
          WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
-       ),
-       all_days AS (
-         SELECT tenant_id, bank_code, acc_tail, date FROM normalized_daily
-         UNION
-         SELECT tenant_id, bank_code, acc_tail, date FROM normalized_api
-         UNION
-         SELECT tenant_id, bank_code, acc_tail, date FROM normalized_erp
        ),
        daily_totals AS (
          SELECT tenant_id,
                 bank_code,
                 acc_tail,
-                date,
+                date::date AS date,
                 SUM(COALESCE(api_matched_abs, 0)) AS api_matched_abs,
                 SUM(COALESCE(erp_matched_abs, 0)) AS erp_matched_abs,
                 SUM(COALESCE(api_unrec_abs, 0)) AS api_unrec_abs,
                 SUM(COALESCE(erp_unrec_abs, 0)) AS erp_unrec_abs,
                 SUM(COALESCE(unrec_diff, 0)) AS unrec_diff
-         FROM normalized_daily
+         FROM gold_conciliation_daily
+         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
          GROUP BY tenant_id, bank_code, acc_tail, date
        ),
        api_unrec AS (
-         SELECT tenant_id, bank_code, acc_tail, date, SUM(amount) AS api_unrec_abs
-         FROM normalized_api
+         SELECT tenant_id, bank_code, acc_tail, date::date AS date, SUM(amount) AS api_unrec_abs
+         FROM gold_unreconciled_api
+         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
          GROUP BY tenant_id, bank_code, acc_tail, date
        ),
        erp_unrec AS (
-         SELECT tenant_id, bank_code, acc_tail, date, SUM(amount) AS erp_unrec_abs
-         FROM normalized_erp
+         SELECT tenant_id, bank_code, acc_tail, date::date AS date, SUM(amount) AS erp_unrec_abs
+         FROM gold_unreconciled_erp
+         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
          GROUP BY tenant_id, bank_code, acc_tail, date
        )
        SELECT d.tenant_id,
               d.bank_code,
               d.acc_tail,
-              to_char(d.date, 'YYYY-MM-DD') AS date,
+              d.date::text AS date,
               COALESCE(dt.api_matched_abs, 0)::float AS api_matched_abs,
               COALESCE(dt.erp_matched_abs, 0)::float AS erp_matched_abs,
               COALESCE(dt.api_unrec_abs, au.api_unrec_abs, 0)::float AS api_unrec_abs,
