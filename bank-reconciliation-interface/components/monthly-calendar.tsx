@@ -3,6 +3,7 @@ import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft, Download } from "lucide-react"
+import { parseDateOnly } from "@/lib/date"
 
 export interface DailyData {
   tenant_id: string
@@ -38,7 +39,7 @@ export function MonthlyCalendar({
 }: MonthlyCalendarProps) {
   const [generating, setGenerating] = useState(false)
 
-  const baseDate = new Date(monthDate)
+  const baseDate = parseDateOnly(monthDate)
   const year = baseDate.getFullYear()
   const month = baseDate.getMonth()
   const daysInMonth = new Date(year, month + 1, 0).getDate()
