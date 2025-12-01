@@ -13,15 +13,31 @@ export async function GET(request: Request) {
 
   try {
     const monthly = await query(
-      `SELECT tenant_id, bank_code, acc_tail, month::text AS month,
-              COALESCE(api_matched_abs,0)::float AS api_matched_abs,
-              COALESCE(erp_matched_abs,0)::float AS erp_matched_abs,
-              COALESCE(api_unrec_abs,0)::float AS api_unrec_abs,
-              COALESCE(erp_unrec_abs,0)::float AS erp_unrec_abs,
-              COALESCE(unrec_total_abs,0)::float AS unrec_total_abs
-       FROM gold_conciliation_monthly
-       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
-       ORDER BY month`,
+      `WITH daily AS (
+        SELECT tenant_id,
+               bank_code,
+               acc_tail,
+               date_trunc('month', date)::date AS month,
+               COALESCE(api_matched_abs,0) AS api_matched_abs,
+               COALESCE(erp_matched_abs,0) AS erp_matched_abs,
+               COALESCE(api_unrec_abs,0) AS api_unrec_abs,
+               COALESCE(erp_unrec_abs,0) AS erp_unrec_abs,
+               COALESCE(unrec_total_abs,0) AS unrec_total_abs
+        FROM gold_conciliation_daily
+        WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3
+      )
+      SELECT tenant_id,
+             bank_code,
+             acc_tail,
+             month::text AS month,
+             SUM(api_matched_abs)::float AS api_matched_abs,
+             SUM(erp_matched_abs)::float AS erp_matched_abs,
+             SUM(api_unrec_abs)::float AS api_unrec_abs,
+             SUM(erp_unrec_abs)::float AS erp_unrec_abs,
+             SUM(unrec_total_abs)::float AS unrec_total_abs
+      FROM daily
+      GROUP BY tenant_id, bank_code, acc_tail, month
+      ORDER BY month`,
       [tenantId, bankCode, accTail]
     )
 

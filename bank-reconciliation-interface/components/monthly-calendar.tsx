@@ -162,6 +162,7 @@ export function MonthlyCalendar({
           {days.map((day, index) => {
             const dayData = day ? getDayData(day) : null
             const isReconciliated = dayData && dayData.unrec_total_abs === 0
+            const isClickable = Boolean(day && dayData)
 
             return (
               <div
@@ -170,17 +171,17 @@ export function MonthlyCalendar({
                   !day
                     ? "bg-muted"
                     : isReconciliated
-                      ? "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900"
+                      ? "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800"
                       : dayData?.unrec_total_abs
-                        ? "bg-orange-50 dark:bg-orange-950 border-orange-200 dark:border-orange-800 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900"
-                        : "bg-card border-border"
-                }`}
-            onClick={() => {
-              if (!day) return
-              const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-              onDayClick(dateStr)
-            }}
-          >
+                        ? "bg-orange-50 dark:bg-orange-950 border-orange-200 dark:border-orange-800"
+                        : "bg-card border-border text-muted-foreground"
+                } ${isClickable ? "cursor-pointer hover:bg-accent" : "cursor-not-allowed"}`}
+                onClick={() => {
+                  if (!isClickable) return
+                  const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+                  onDayClick(dateStr)
+                }}
+              >
                 {day && (
                   <>
                     <div className="text-sm font-semibold text-foreground">{day}</div>
@@ -196,6 +197,9 @@ export function MonthlyCalendar({
                           )}
                         </div>
                       </>
+                    )}
+                    {!dayData && (
+                      <p className="text-xs text-muted-foreground mt-1">Sem registro</p>
                     )}
                   </>
                 )}
