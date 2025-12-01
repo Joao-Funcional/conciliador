@@ -86,8 +86,8 @@ export function AnnualSummary({ monthlyData, onMonthClick }: AnnualSummaryProps)
       ) : (
         <div className="space-y-2">
           {displayMonths.map((data) => {
-            const totalApi = (data?.api_matched_abs ?? 0) + (data?.api_unrec_abs ?? 0)
-            const totalErp = (data?.erp_matched_abs ?? 0) + (data?.erp_unrec_abs ?? 0)
+            const totalApi = data?.api_matched_abs ?? 0
+            const totalErp = data?.erp_matched_abs ?? 0
             const unreconciled = data?.unrec_total_abs ?? 0
             const label = new Date(data.month).toLocaleString("pt-BR", { month: "short" })
 
