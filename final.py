@@ -123,7 +123,7 @@ def load_api_from_pg() -> pl.DataFrame:
             SELECT id, descriptionraw, currencycode, amount, "date",
                    date_ts_utc, date_ts_br, date_br,
                    category, categoryid, status, "type", operationtype,
-                   accountid, tenant_id, account_number, bank_code, branch,
+                   accountid, tenant_id, account_number, bank_code, bank_name, branch,
                    src_commit_version, src_commit_timestamp
             FROM silver_api_staging
             WHERE tenant_id = %s
@@ -319,6 +319,7 @@ def load_api_from_pg() -> pl.DataFrame:
             "api_amount", "api_cents", "api_sign",
             "api_acc_tail", "api_desc_norm",
             "bank_code",
+            "bank_name",
             "api_is_tax", "api_is_bankfees",
             "api_is_pix_tariff",
             "api_is_rent",        # geral (D+1 + D+2)
@@ -357,6 +358,7 @@ def load_erp_from_pg() -> pl.DataFrame:
             pl.int_range(0, pl.len()).cast(pl.Int64).alias("erp_row_id"),
             pl.col("date_br").dt.date().alias("erp_date"),
             (pl.col("amount_client") * 100).round(0).cast(pl.Int64).alias("erp_cents"),
+            pl.col("bank").cast(pl.Utf8).alias("bank_name"),
         ])
         .with_columns([
             (pl.col("erp_cents") / 100).cast(pl.Float64).alias("erp_amount"),
@@ -378,7 +380,7 @@ def load_erp_from_pg() -> pl.DataFrame:
             "erp_row_id", "erp_uid", "tenant_id",
             "erp_date", "erp_amount", "erp_cents",
             "erp_sign", "erp_acc_tail", "erp_desc_norm",
-            "bank_code"
+            "bank_code", "bank_name"
         ])
     )
 
@@ -955,6 +957,7 @@ class Tx:
     matched: bool = False
     tenant_id: str = ""
     bank_code: str = ""
+    bank_name: str = ""
     acc_norm: str = ""
     acc_tail: str = ""
 
@@ -969,7 +972,7 @@ class Tx:
 # ========================= Carregar dados p/ descrição (pandas) =========================
 def load_api_df(conn, tenant_id: str, date_from: str, date_to: str) -> pd.DataFrame:
     sql = """
-        SELECT id, tenant_id, account_number, bank_code,
+        SELECT id, tenant_id, account_number, bank_code, bank_name,
                descriptionraw, currencycode,
                amount::numeric AS amount,
                date_br::date   AS date_br
@@ -994,7 +997,7 @@ def load_erp_df(conn, tenant_id: str, date_from: str, date_to: str) -> pd.DataFr
                description_client,
                amount_client::numeric      AS amount_client,
                amount_client_abs::numeric  AS amount_client_abs,
-               bank, bank_code, agency_norm, account_norm, favorecido
+               bank AS bank_name, bank_code, agency_norm, account_norm, favorecido
         FROM silver_erp_staging
         WHERE tenant_id = %s
           AND date_br::date BETWEEN %s AND %s;
@@ -1053,6 +1056,7 @@ def _build_txs(
                 work_date=work_dt,
                 tenant_id=str(row.get("tenant_id", "") or ""),
                 bank_code=str(row.get("bank_code", "") or ""),
+                bank_name=str(row.get("bank_name", "") or ""),
                 acc_norm=acc_norm,
                 acc_tail=acc_tail,
             )
@@ -1080,6 +1084,7 @@ def _build_txs(
                 work_date=dt_erp,
                 tenant_id=str(row.get("tenant_id", "") or ""),
                 bank_code=str(row.get("bank_code", "") or ""),
+                bank_name=str(row.get("bank_name", "") or ""),
                 acc_norm=acc_norm,
                 acc_tail=acc_tail,
             )
@@ -1594,6 +1599,14 @@ def transform(
 
     cal = build_calendar(DATE_FROM, DATE_TO, 15)
 
+    bank_meta = (
+        pl.concat([
+            A0.select(["tenant_id", "bank_code", "bank_name"]),
+            E0.select(["tenant_id", "bank_code", "bank_name"]),
+        ], how="vertical")
+        .unique(subset=["tenant_id", "bank_code"])
+    )
+
     A = (
         A0.join(cal.rename({"cal_date": "api_date"}), on="api_date", how="left")
           .rename({"biz_ord": "api_biz_ord"})
@@ -2045,6 +2058,7 @@ def transform(
             schema=[
                 ("tenant_id", pl.Utf8),
                 ("bank_code", pl.Utf8),
+                ("bank_name", pl.Utf8),
                 ("acc_tail", pl.Utf8),
                 ("date", pl.Date),
                 ("api_matched_abs", pl.Float64),
@@ -2059,6 +2073,7 @@ def transform(
             schema=[
                 ("tenant_id", pl.Utf8),
                 ("bank_code", pl.Utf8),
+                ("bank_name", pl.Utf8),
                 ("acc_tail", pl.Utf8),
                 ("month", pl.Date),
                 ("api_matched_abs", pl.Float64),
@@ -2169,7 +2184,12 @@ def transform(
                 pl.col("erp_unrec_abs").sum().round(2).alias("erp_unrec_abs"),
                 pl.col("unrec_total_abs").sum().round(2).alias("unrec_total_abs"),
             ])
-        )
+    )
+
+    unrec_api = unrec_api.join(bank_meta, on=["tenant_id", "bank_code"], how="left")
+    unrec_erp = unrec_erp.join(bank_meta, on=["tenant_id", "bank_code"], how="left")
+    daily = daily.join(bank_meta, on=["tenant_id", "bank_code"], how="left")
+    monthly = monthly.join(bank_meta, on=["tenant_id", "bank_code"], how="left")
 
     matches_audit = (
         matches
@@ -2207,7 +2227,8 @@ CREATE TABLE IF NOT EXISTS gold_unreconciled_api (
     amount numeric(18,2),
     api_id text,
     desc_norm text,
-    bank_code text
+    bank_code text,
+    bank_name text
 )
 """
 
@@ -2219,7 +2240,8 @@ CREATE TABLE IF NOT EXISTS gold_unreconciled_erp (
     amount numeric(18,2),
     cd_lancamento text,
     desc_norm text,
-    bank_code text
+    bank_code text,
+    bank_name text
 )
 """
 
@@ -2227,6 +2249,7 @@ CREATE_DAILY = """
 CREATE TABLE IF NOT EXISTS gold_conciliation_daily (
     tenant_id text,
     bank_code text,
+    bank_name text,
     acc_tail text,
     date date,
     api_matched_abs numeric(18,2),
@@ -2242,6 +2265,7 @@ CREATE_MONTHLY = """
 CREATE TABLE IF NOT EXISTS gold_conciliation_monthly (
     tenant_id text,
     bank_code text,
+    bank_name text,
     acc_tail text,
     month date,
     api_matched_abs numeric(18,2),

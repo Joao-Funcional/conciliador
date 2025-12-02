@@ -4,15 +4,16 @@ import { query } from "@/lib/db"
 type OptionRow = {
   tenant_id: string
   bank_code: string
+  bank_name: string
   acc_tail: string
 }
 
 export async function GET() {
   try {
     const rows = await query<OptionRow>(
-      `SELECT DISTINCT tenant_id, bank_code, acc_tail
+      `SELECT DISTINCT tenant_id, bank_code, bank_name, acc_tail
        FROM gold_conciliation_daily
-       ORDER BY tenant_id, bank_code, acc_tail`
+       ORDER BY tenant_id, bank_name, acc_tail`
     )
     return NextResponse.json({ options: rows })
   } catch (error) {
