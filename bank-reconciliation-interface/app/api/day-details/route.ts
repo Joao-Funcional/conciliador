@@ -43,7 +43,7 @@ export async function GET(request: Request) {
        WHERE tenant_id = $1
          AND bank_code = $2
          AND acc_tail = $3
-         AND api_date = $4
+         AND (api_date = $4 OR erp_date = $4)
        ORDER BY prio, api_uid, erp_uid`,
       [tenantId, bankCode, accTail, date]
     )

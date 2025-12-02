@@ -43,8 +43,10 @@ type Match = {
   ddiff: number
   api_amount: number
   api_desc: string
+  api_date: string
   erp_amount: number
   erp_desc: string
+  erp_date: string
 }
 
 export function UnreconciledDetails({
@@ -393,6 +395,7 @@ export function UnreconciledDetails({
                       <div>
                         <p className="text-xs text-muted-foreground mb-1">API</p>
                         <p className="font-semibold text-foreground text-sm">{formatCurrency(match.api_amount)}</p>
+                        <p className="text-xs text-muted-foreground">{parseDateOnly(match.api_date).toLocaleDateString("pt-BR")}</p>
                         <p className="text-xs text-muted-foreground mt-1">{match.api_desc}</p>
                       </div>
                       <div className="flex items-center justify-center">
@@ -401,6 +404,7 @@ export function UnreconciledDetails({
                       <div>
                         <p className="text-xs text-muted-foreground mb-1">ERP</p>
                         <p className="font-semibold text-foreground text-sm">{formatCurrency(match.erp_amount)}</p>
+                        <p className="text-xs text-muted-foreground">{parseDateOnly(match.erp_date).toLocaleDateString("pt-BR")}</p>
                         <p className="text-xs text-muted-foreground mt-1">{match.erp_desc}</p>
                       </div>
                     </div>
