@@ -77,7 +77,7 @@ export async function GET(request: Request) {
        FROM gold_conciliation_matches_enriched
        WHERE tenant_id = $1
          AND bank_code = $2
-         AND acc_tail = $3
+         AND (acc_tail = $3 OR RIGHT(acc_tail, 4) = RIGHT($3, 4))
          AND (api_date = ANY($4::date[]) OR erp_date = ANY($4::date[]))
        ORDER BY prio, api_uid, erp_uid`,
       [tenantId, bankCode, accTail, dateFilter]

@@ -138,6 +138,12 @@ export function UnreconciledDetails({
     fetchDayData(true)
   }, [tenantId, bankCode, accTail, date])
 
+  useEffect(() => {
+    if (showReconciled) {
+      fetchDayData(false)
+    }
+  }, [showReconciled])
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
       style: "currency",
