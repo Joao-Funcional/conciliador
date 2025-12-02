@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { query } from "@/lib/db"
 
 function isWeekend(date: Date) {
-  const day = date.getDay()
+  const day = date.getUTCDay()
   return day === 0 || day === 6
 }
 
@@ -12,7 +12,7 @@ function shiftBusinessDays(base: Date, step: -1 | 1, count: number) {
 
   while (dates.length < count) {
     current = new Date(current)
-    current.setDate(current.getDate() + step)
+    current.setUTCDate(current.getUTCDate() + step)
     if (isWeekend(current)) continue
     dates.push(new Date(current))
   }

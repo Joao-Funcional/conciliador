@@ -9,7 +9,13 @@ import { UnreconciledDetails } from "@/components/unreconciled-details"
 interface OptionRow {
   tenant_id: string
   bank_code: string
+  bank_name: string
   acc_tail: string
+}
+
+interface BankOption {
+  code: string
+  name: string
 }
 
 export default function Home() {
@@ -43,9 +49,9 @@ export default function Home() {
       return
     }
 
-    const banks = options.filter((o) => o.tenant_id === selectedTenant).map((o) => o.bank_code)
-    if (!banks.includes(selectedBank)) {
-      setSelectedBank(banks[0] ?? "")
+    const banksForTenant = options.filter((o) => o.tenant_id === selectedTenant).map((o) => o.bank_code)
+    if (!banksForTenant.includes(selectedBank)) {
+      setSelectedBank(banksForTenant[0] ?? "")
       return
     }
 
@@ -91,8 +97,16 @@ export default function Home() {
     return Array.from(new Set(options.map((d) => d.tenant_id)))
   }, [options])
 
-  const banks = useMemo(() => {
-    return Array.from(new Set(options.filter((d) => d.tenant_id === selectedTenant).map((d) => d.bank_code)))
+  const banks: BankOption[] = useMemo(() => {
+    const bankMap = new Map<string, BankOption>()
+    options
+      .filter((d) => d.tenant_id === selectedTenant)
+      .forEach((d) => {
+        if (!bankMap.has(d.bank_code)) {
+          bankMap.set(d.bank_code, { code: d.bank_code, name: d.bank_name })
+        }
+      })
+    return Array.from(bankMap.values())
   }, [options, selectedTenant])
 
   const accounts = useMemo(() => {
