@@ -2327,12 +2327,69 @@ def main():
     gold = transform(A0, E0, desc_edges_by_type)
 
     print("[*] Gravando gold no Postgres…")
+    gold_for_pg = {
+        "matches": gold["matches"].select([
+            "api_row_id",
+            "erp_row_id",
+            "api_uid",
+            "erp_uid",
+            "stage",
+            "prio",
+            "ddiff",
+        ]),
+        "unrec_api": gold["unrec_api"].select([
+            "tenant_id",
+            "acc_tail",
+            "date",
+            "amount",
+            "api_id",
+            "desc_norm",
+            "bank_code",
+            "bank_name",
+        ]),
+        "unrec_erp": gold["unrec_erp"].select([
+            "tenant_id",
+            "acc_tail",
+            "date",
+            "amount",
+            "cd_lancamento",
+            "desc_norm",
+            "bank_code",
+            "bank_name",
+        ]),
+        "daily": gold["daily"].select([
+            "tenant_id",
+            "bank_code",
+            "bank_name",
+            "acc_tail",
+            "date",
+            "api_matched_abs",
+            "erp_matched_abs",
+            "api_unrec_abs",
+            "erp_unrec_abs",
+            "unrec_total_abs",
+            "unrec_diff",
+        ]),
+        "monthly": gold["monthly"].select([
+            "tenant_id",
+            "bank_code",
+            "bank_name",
+            "acc_tail",
+            "month",
+            "api_matched_abs",
+            "erp_matched_abs",
+            "api_unrec_abs",
+            "erp_unrec_abs",
+            "unrec_total_abs",
+        ]),
+    }
+
     with pg_conn() as conn:
-        df_to_pg(conn, gold["matches"],    "gold_conciliation_matches",  CREATE_MATCHES)
-        df_to_pg(conn, gold["unrec_api"],  "gold_unreconciled_api",      CREATE_UNREC_API)
-        df_to_pg(conn, gold["unrec_erp"],  "gold_unreconciled_erp",      CREATE_UNREC_ERP)
-        df_to_pg(conn, gold["daily"],      "gold_conciliation_daily",    CREATE_DAILY)
-        df_to_pg(conn, gold["monthly"],    "gold_conciliation_monthly",  CREATE_MONTHLY)
+        df_to_pg(conn, gold_for_pg["matches"],   "gold_conciliation_matches",  CREATE_MATCHES)
+        df_to_pg(conn, gold_for_pg["unrec_api"], "gold_unreconciled_api",      CREATE_UNREC_API)
+        df_to_pg(conn, gold_for_pg["unrec_erp"], "gold_unreconciled_erp",      CREATE_UNREC_ERP)
+        df_to_pg(conn, gold_for_pg["daily"],     "gold_conciliation_daily",    CREATE_DAILY)
+        df_to_pg(conn, gold_for_pg["monthly"],   "gold_conciliation_monthly",  CREATE_MONTHLY)
 
     print(f"[OK] Concluído em {time.perf_counter() - t0:.2f}s")
 
