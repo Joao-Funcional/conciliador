@@ -382,36 +382,40 @@ export function UnreconciledDetails({
             </div>
           </div>
 
-          {showReconciled && matches.length > 0 && (
+          {showReconciled && (
             <div className="mt-8">
               <h3 className="text-lg font-semibold text-foreground mb-4">Transações Conciliadas</h3>
-              <div className="space-y-3">
-                {matches.map((match) => (
-                  <Card
-                    key={`${match.api_uid}-${match.erp_uid}`}
-                    className="p-4 bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800"
-                  >
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">API</p>
-                        <p className="font-semibold text-foreground text-sm">{formatCurrency(match.api_amount)}</p>
-                        <p className="text-xs text-muted-foreground">{parseDateOnly(match.api_date).toLocaleDateString("pt-BR")}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{match.api_desc}</p>
+              {matches.length > 0 ? (
+                <div className="space-y-3">
+                  {matches.map((match) => (
+                    <Card
+                      key={`${match.api_uid}-${match.erp_uid}`}
+                      className="p-4 bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800"
+                    >
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">API</p>
+                          <p className="font-semibold text-foreground text-sm">{formatCurrency(match.api_amount)}</p>
+                          <p className="text-xs text-muted-foreground">{parseDateOnly(match.api_date).toLocaleDateString("pt-BR")}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{match.api_desc}</p>
+                        </div>
+                        <div className="flex items-center justify-center">
+                          <span className="text-green-600 font-bold">↔</span>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">ERP</p>
+                          <p className="font-semibold text-foreground text-sm">{formatCurrency(match.erp_amount)}</p>
+                          <p className="text-xs text-muted-foreground">{parseDateOnly(match.erp_date).toLocaleDateString("pt-BR")}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{match.erp_desc}</p>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-center">
-                        <span className="text-green-600 font-bold">↔</span>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">ERP</p>
-                        <p className="font-semibold text-foreground text-sm">{formatCurrency(match.erp_amount)}</p>
-                        <p className="text-xs text-muted-foreground">{parseDateOnly(match.erp_date).toLocaleDateString("pt-BR")}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{match.erp_desc}</p>
-                      </div>
-                    </div>
-                    <div className="mt-2 text-xs text-muted-foreground">Estágio: {match.stage}</div>
-                  </Card>
-                ))}
-              </div>
+                      <div className="mt-2 text-xs text-muted-foreground">Estágio: {match.stage}</div>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-muted-foreground text-sm">Nenhuma transação conciliada para este período.</div>
+              )}
             </div>
           )}
         </>

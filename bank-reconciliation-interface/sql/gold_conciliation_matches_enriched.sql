@@ -13,7 +13,7 @@ SELECT
   m.ddiff,
   a.tenant_id,
   a.bank_code,
-  RIGHT(regexp_replace(a.account_number, '\\D', '', 'g'), 8) AS acc_tail,
+  RIGHT(regexp_replace(a.account_number, '\\D', '', 'g'), 4) AS acc_tail,
   a.date::date AS api_date,
   e.date_br::date AS erp_date,
   COALESCE(a.amount, 0)::float AS api_amount,
