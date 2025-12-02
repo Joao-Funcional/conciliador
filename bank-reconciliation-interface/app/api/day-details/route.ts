@@ -35,7 +35,7 @@ export async function GET(request: Request) {
       `SELECT m.api_uid, m.erp_uid, m.stage, m.prio, m.ddiff,
               a.amount AS api_amount,
               a.descriptionraw AS api_desc,
-              a.date_br::date AS api_date,
+              a.date::date AS api_date,
               e.amount_client AS erp_amount,
               e.description_client AS erp_desc,
               e.date_br::date AS erp_date
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
          AND e.tenant_id = $1
          AND a.bank_code = $2
          AND (a.account_number ~ '\\d' AND right(regexp_replace(a.account_number, '\\D', '', 'g'), 8) = $3)
-         AND a.date_br::date = $4`,
+         AND a.date::date = $4`,
       [tenantId, bankCode, accTail, date]
     )
 
