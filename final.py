@@ -120,14 +120,12 @@ def right_digits(col: str, n: int) -> pl.Expr:
 def load_api_from_pg() -> pl.DataFrame:
     with pg_conn() as c, c.cursor() as cur:
         cur.execute("""
-            SELECT id, descriptionraw, currencycode, amount, "date",
-                   date_ts_utc, date_ts_br, date_br,
+            SELECT id, descriptionraw, currencycode, amount, date_api, "date",
                    category, categoryid, status, "type", operationtype,
-                   accountid, tenant_id, account_number, bank_code, bank_name, branch,
-                   src_commit_version, src_commit_timestamp
+                   accountid, tenant_id, account_number, bank_code, bank_name
             FROM silver_api_staging
             WHERE tenant_id = %s
-              AND date(date_br) BETWEEN %s AND %s
+              AND date("date") BETWEEN %s AND %s
         """, (TENANT, READ_FROM, READ_TO))
         rows = cur.fetchall()
         cols = [d.name for d in cur.description]
@@ -146,7 +144,7 @@ def load_api_from_pg() -> pl.DataFrame:
         .with_columns([
             pl.col("id").cast(pl.Utf8).alias("api_uid"),
             pl.int_range(0, pl.len()).cast(pl.Int64).alias("api_row_id"),
-            pl.col("date_br").dt.date().alias("api_date_raw"),
+            pl.col("date").dt.date().alias("api_date_raw"),
             (pl.col("amount") * 100).round(0).cast(pl.Int64).alias("api_cents"),
         ])
     )
@@ -257,52 +255,51 @@ def load_api_from_pg() -> pl.DataFrame:
         )
     )
 
-    d_plus_2_rules = pl.lit(False)
-
-    d_minus_1_rules = (
-        (pl.col("categoryid") == "15030000")
-        | (bankfees_avulso_rule & ~bankfees_carga_crt_rule)
-        | (pl.col("categoryid") == "05050000")
-        | (pl.col("api_optype_upper") == "RENDIMENTO_APLIC_FINANCEIRA")
-        | early_transfer_rule
-    )
-    d_minus_2_rules = (
-        (pl.col("categoryid") == "03060000")
-        | (
-            (pl.col("categoryid") == "05070000")
-            & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
-        )
-        | bankfees_package_rule
-        | bankfees_carga_crt_rule
-    )
-
-    conc_date_base = (
-        pl.when(d_minus_1_rules)
-          .then(shift_business_days(pl.col("api_date_raw"), -1))
-          .when(d_minus_2_rules)
-          .then(shift_business_days(pl.col("api_date_raw"), -2))
-          .when(d_plus_2_rules)
-          .then(shift_business_days(pl.col("api_date_raw"), 2))
-          .otherwise(pl.col("api_date_raw"))
-    )
-
-    conc_date = (
-        pl.when(d_minus_1_rules | d_minus_2_rules | d_plus_2_rules)
-          # deslocamentos D-1/D-2/D+2 nunca podem ficar em fim de semana: volta para sexta
-          .then(
-              conc_date_base.map_elements(
-                  lambda d: prev_business_day(d) if is_weekend(d) else d,
-                  return_dtype=pl.Date,
-              )
-          )
-          # datas originais em fim de semana vão para a segunda-feira seguinte
-          .otherwise(
-              conc_date_base.map_elements(
-                  lambda d: next_business_day(d) if is_weekend(d) else d,
-                  return_dtype=pl.Date,
-              )
-          )
-    )
+    # Ajustes de data passaram a ser feitos na criação da silver; mantemos a data bruta.
+    # d_plus_2_rules = pl.lit(False)
+    # d_minus_1_rules = (
+    #     (pl.col("categoryid") == "15030000")
+    #     | (bankfees_avulso_rule & ~bankfees_carga_crt_rule)
+    #     | (pl.col("categoryid") == "05050000")
+    #     | (pl.col("api_optype_upper") == "RENDIMENTO_APLIC_FINANCEIRA")
+    #     | early_transfer_rule
+    # )
+    # d_minus_2_rules = (
+    #     (pl.col("categoryid") == "03060000")
+    #     | (
+    #         (pl.col("categoryid") == "05070000")
+    #         & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
+    #     )
+    #     | bankfees_package_rule
+    #     | bankfees_carga_crt_rule
+    # )
+    # conc_date_base = (
+    #     pl.when(d_minus_1_rules)
+    #       .then(shift_business_days(pl.col("api_date_raw"), -1))
+    #       .when(d_minus_2_rules)
+    #       .then(shift_business_days(pl.col("api_date_raw"), -2))
+    #       .when(d_plus_2_rules)
+    #       .then(shift_business_days(pl.col("api_date_raw"), 2))
+    #       .otherwise(pl.col("api_date_raw"))
+    # )
+    # conc_date = (
+    #     pl.when(d_minus_1_rules | d_minus_2_rules | d_plus_2_rules)
+    #       # deslocamentos D-1/D-2/D+2 nunca podem ficar em fim de semana: volta para sexta
+    #       .then(
+    #           conc_date_base.map_elements(
+    #               lambda d: prev_business_day(d) if is_weekend(d) else d,
+    #               return_dtype=pl.Date,
+    #           )
+    #       )
+    #       # datas originais em fim de semana vão para a segunda-feira seguinte
+    #       .otherwise(
+    #           conc_date_base.map_elements(
+    #               lambda d: next_business_day(d) if is_weekend(d) else d,
+    #               return_dtype=pl.Date,
+    #           )
+    #       )
+    # )
+    conc_date = pl.col("api_date_raw")
 
     # 6) Datas derivadas D-1 / D-2 + seleção final
     df = (
@@ -310,8 +307,8 @@ def load_api_from_pg() -> pl.DataFrame:
         .with_columns([
             conc_date.alias("api_conciliation_date"),
             conc_date.alias("api_date"),
-            shift_business_days(conc_date, -1).alias("api_date_d1"),
-            shift_business_days(conc_date, -2).alias("api_date_d2"),
+            conc_date.alias("api_date_d1"),
+            conc_date.alias("api_date_d2"),
         ])
         .select([
             "api_row_id", "api_uid", "tenant_id",
@@ -975,10 +972,10 @@ def load_api_df(conn, tenant_id: str, date_from: str, date_to: str) -> pd.DataFr
         SELECT id, tenant_id, account_number, bank_code, bank_name,
                descriptionraw, currencycode,
                amount::numeric AS amount,
-               date_br::date   AS date_br
+               "date"::date   AS date
         FROM silver_api_staging
         WHERE tenant_id = %s
-          AND date_br::date BETWEEN %s AND %s;
+          AND "date"::date BETWEEN %s AND %s;
     """
     df = pd.read_sql(sql, conn, params=(tenant_id, date_from, date_to))
 
@@ -1029,12 +1026,9 @@ def _build_txs(
 
     api_reset = api_df.reset_index(drop=True)
     for i, row in api_reset.iterrows():
-        dt_api = pd.to_datetime(row["date_br"]).date()
-        # Work date: "sáb. vira sexta"
-        if dt_api.weekday() == 5:  # sábado
-            work_dt = dt_api - timedelta(days=1)
-        else:
-            work_dt = dt_api
+        dt_api = pd.to_datetime(row["date"]).date()
+        # Work date já ajustada na silver
+        work_dt = dt_api
 
         acc_norm = normalize_account_number(row.get("account_number"))
         acc_tail = acc_norm[-ACC_TAIL_DIGITS:] if acc_norm else ""
@@ -1482,7 +1476,7 @@ def reconcile_by_description(
                     "side": "api",
                     "id": row["id"],
                     "descriptionraw": row.get("descriptionraw"),
-                    "date_br": row["date_br"],
+                    "date": row["date"],
                     "amount": float(row["amount"]),
                     "matched_erp_cd_lanc": erp_keys_str,
                     "raw": row.to_dict(),
