@@ -4,7 +4,7 @@ export interface BankSelectorProps {
   tenants: string[]
   selectedTenant: string
   onTenantChange: (tenant: string) => void
-  banks: string[]
+  banks: { code: string; name: string }[]
   selectedBank: string
   onBankChange: (bank: string) => void
   accounts: string[]
@@ -48,8 +48,8 @@ export function BankSelector({
           className="w-full px-3 py-2 border border-input rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
         >
           {banks.map((b) => (
-            <option key={b} value={b}>
-              {b}
+            <option key={b.code} value={b.code}>
+              {b.name}
             </option>
           ))}
         </select>

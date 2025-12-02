@@ -120,14 +120,12 @@ def right_digits(col: str, n: int) -> pl.Expr:
 def load_api_from_pg() -> pl.DataFrame:
     with pg_conn() as c, c.cursor() as cur:
         cur.execute("""
-            SELECT id, descriptionraw, currencycode, amount, "date",
-                   date_ts_utc, date_ts_br, date_br,
+            SELECT id, descriptionraw, currencycode, amount, date_api, "date",
                    category, categoryid, status, "type", operationtype,
-                   accountid, tenant_id, account_number, bank_code, branch,
-                   src_commit_version, src_commit_timestamp
+                   accountid, tenant_id, account_number, bank_code, bank_name
             FROM silver_api_staging
             WHERE tenant_id = %s
-              AND date(date_br) BETWEEN %s AND %s
+              AND date("date") BETWEEN %s AND %s
         """, (TENANT, READ_FROM, READ_TO))
         rows = cur.fetchall()
         cols = [d.name for d in cur.description]
@@ -146,7 +144,7 @@ def load_api_from_pg() -> pl.DataFrame:
         .with_columns([
             pl.col("id").cast(pl.Utf8).alias("api_uid"),
             pl.int_range(0, pl.len()).cast(pl.Int64).alias("api_row_id"),
-            pl.col("date_br").dt.date().alias("api_date_raw"),
+            pl.col("date").dt.date().alias("api_date_raw"),
             (pl.col("amount") * 100).round(0).cast(pl.Int64).alias("api_cents"),
         ])
     )
@@ -257,52 +255,51 @@ def load_api_from_pg() -> pl.DataFrame:
         )
     )
 
-    d_plus_2_rules = pl.lit(False)
-
-    d_minus_1_rules = (
-        (pl.col("categoryid") == "15030000")
-        | (bankfees_avulso_rule & ~bankfees_carga_crt_rule)
-        | (pl.col("categoryid") == "05050000")
-        | (pl.col("api_optype_upper") == "RENDIMENTO_APLIC_FINANCEIRA")
-        | early_transfer_rule
-    )
-    d_minus_2_rules = (
-        (pl.col("categoryid") == "03060000")
-        | (
-            (pl.col("categoryid") == "05070000")
-            & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
-        )
-        | bankfees_package_rule
-        | bankfees_carga_crt_rule
-    )
-
-    conc_date_base = (
-        pl.when(d_minus_1_rules)
-          .then(shift_business_days(pl.col("api_date_raw"), -1))
-          .when(d_minus_2_rules)
-          .then(shift_business_days(pl.col("api_date_raw"), -2))
-          .when(d_plus_2_rules)
-          .then(shift_business_days(pl.col("api_date_raw"), 2))
-          .otherwise(pl.col("api_date_raw"))
-    )
-
-    conc_date = (
-        pl.when(d_minus_1_rules | d_minus_2_rules | d_plus_2_rules)
-          # deslocamentos D-1/D-2/D+2 nunca podem ficar em fim de semana: volta para sexta
-          .then(
-              conc_date_base.map_elements(
-                  lambda d: prev_business_day(d) if is_weekend(d) else d,
-                  return_dtype=pl.Date,
-              )
-          )
-          # datas originais em fim de semana vão para a segunda-feira seguinte
-          .otherwise(
-              conc_date_base.map_elements(
-                  lambda d: next_business_day(d) if is_weekend(d) else d,
-                  return_dtype=pl.Date,
-              )
-          )
-    )
+    # Ajustes de data passaram a ser feitos na criação da silver; mantemos a data bruta.
+    # d_plus_2_rules = pl.lit(False)
+    # d_minus_1_rules = (
+    #     (pl.col("categoryid") == "15030000")
+    #     | (bankfees_avulso_rule & ~bankfees_carga_crt_rule)
+    #     | (pl.col("categoryid") == "05050000")
+    #     | (pl.col("api_optype_upper") == "RENDIMENTO_APLIC_FINANCEIRA")
+    #     | early_transfer_rule
+    # )
+    # d_minus_2_rules = (
+    #     (pl.col("categoryid") == "03060000")
+    #     | (
+    #         (pl.col("categoryid") == "05070000")
+    #         & (pl.col("api_optype_upper") == "TARIFA_SERVICOS_AVULSOS")
+    #     )
+    #     | bankfees_package_rule
+    #     | bankfees_carga_crt_rule
+    # )
+    # conc_date_base = (
+    #     pl.when(d_minus_1_rules)
+    #       .then(shift_business_days(pl.col("api_date_raw"), -1))
+    #       .when(d_minus_2_rules)
+    #       .then(shift_business_days(pl.col("api_date_raw"), -2))
+    #       .when(d_plus_2_rules)
+    #       .then(shift_business_days(pl.col("api_date_raw"), 2))
+    #       .otherwise(pl.col("api_date_raw"))
+    # )
+    # conc_date = (
+    #     pl.when(d_minus_1_rules | d_minus_2_rules | d_plus_2_rules)
+    #       # deslocamentos D-1/D-2/D+2 nunca podem ficar em fim de semana: volta para sexta
+    #       .then(
+    #           conc_date_base.map_elements(
+    #               lambda d: prev_business_day(d) if is_weekend(d) else d,
+    #               return_dtype=pl.Date,
+    #           )
+    #       )
+    #       # datas originais em fim de semana vão para a segunda-feira seguinte
+    #       .otherwise(
+    #           conc_date_base.map_elements(
+    #               lambda d: next_business_day(d) if is_weekend(d) else d,
+    #               return_dtype=pl.Date,
+    #           )
+    #       )
+    # )
+    conc_date = pl.col("api_date_raw")
 
     # 6) Datas derivadas D-1 / D-2 + seleção final
     df = (
@@ -310,8 +307,8 @@ def load_api_from_pg() -> pl.DataFrame:
         .with_columns([
             conc_date.alias("api_conciliation_date"),
             conc_date.alias("api_date"),
-            shift_business_days(conc_date, -1).alias("api_date_d1"),
-            shift_business_days(conc_date, -2).alias("api_date_d2"),
+            conc_date.alias("api_date_d1"),
+            conc_date.alias("api_date_d2"),
         ])
         .select([
             "api_row_id", "api_uid", "tenant_id",
@@ -319,6 +316,7 @@ def load_api_from_pg() -> pl.DataFrame:
             "api_amount", "api_cents", "api_sign",
             "api_acc_tail", "api_desc_norm",
             "bank_code",
+            "bank_name",
             "api_is_tax", "api_is_bankfees",
             "api_is_pix_tariff",
             "api_is_rent",        # geral (D+1 + D+2)
@@ -357,6 +355,7 @@ def load_erp_from_pg() -> pl.DataFrame:
             pl.int_range(0, pl.len()).cast(pl.Int64).alias("erp_row_id"),
             pl.col("date_br").dt.date().alias("erp_date"),
             (pl.col("amount_client") * 100).round(0).cast(pl.Int64).alias("erp_cents"),
+            pl.col("bank").cast(pl.Utf8).alias("bank_name"),
         ])
         .with_columns([
             (pl.col("erp_cents") / 100).cast(pl.Float64).alias("erp_amount"),
@@ -378,7 +377,7 @@ def load_erp_from_pg() -> pl.DataFrame:
             "erp_row_id", "erp_uid", "tenant_id",
             "erp_date", "erp_amount", "erp_cents",
             "erp_sign", "erp_acc_tail", "erp_desc_norm",
-            "bank_code"
+            "bank_code", "bank_name"
         ])
     )
 
@@ -955,6 +954,7 @@ class Tx:
     matched: bool = False
     tenant_id: str = ""
     bank_code: str = ""
+    bank_name: str = ""
     acc_norm: str = ""
     acc_tail: str = ""
 
@@ -969,13 +969,13 @@ class Tx:
 # ========================= Carregar dados p/ descrição (pandas) =========================
 def load_api_df(conn, tenant_id: str, date_from: str, date_to: str) -> pd.DataFrame:
     sql = """
-        SELECT id, tenant_id, account_number, bank_code,
+        SELECT id, tenant_id, account_number, bank_code, bank_name,
                descriptionraw, currencycode,
                amount::numeric AS amount,
-               date_br::date   AS date_br
+               "date"::date   AS date
         FROM silver_api_staging
         WHERE tenant_id = %s
-          AND date_br::date BETWEEN %s AND %s;
+          AND "date"::date BETWEEN %s AND %s;
     """
     df = pd.read_sql(sql, conn, params=(tenant_id, date_from, date_to))
 
@@ -994,7 +994,7 @@ def load_erp_df(conn, tenant_id: str, date_from: str, date_to: str) -> pd.DataFr
                description_client,
                amount_client::numeric      AS amount_client,
                amount_client_abs::numeric  AS amount_client_abs,
-               bank, bank_code, agency_norm, account_norm, favorecido
+               bank AS bank_name, bank_code, agency_norm, account_norm, favorecido
         FROM silver_erp_staging
         WHERE tenant_id = %s
           AND date_br::date BETWEEN %s AND %s;
@@ -1026,12 +1026,9 @@ def _build_txs(
 
     api_reset = api_df.reset_index(drop=True)
     for i, row in api_reset.iterrows():
-        dt_api = pd.to_datetime(row["date_br"]).date()
-        # Work date: "sáb. vira sexta"
-        if dt_api.weekday() == 5:  # sábado
-            work_dt = dt_api - timedelta(days=1)
-        else:
-            work_dt = dt_api
+        dt_api = pd.to_datetime(row["date"]).date()
+        # Work date já ajustada na silver
+        work_dt = dt_api
 
         acc_norm = normalize_account_number(row.get("account_number"))
         acc_tail = acc_norm[-ACC_TAIL_DIGITS:] if acc_norm else ""
@@ -1053,6 +1050,7 @@ def _build_txs(
                 work_date=work_dt,
                 tenant_id=str(row.get("tenant_id", "") or ""),
                 bank_code=str(row.get("bank_code", "") or ""),
+                bank_name=str(row.get("bank_name", "") or ""),
                 acc_norm=acc_norm,
                 acc_tail=acc_tail,
             )
@@ -1080,6 +1078,7 @@ def _build_txs(
                 work_date=dt_erp,
                 tenant_id=str(row.get("tenant_id", "") or ""),
                 bank_code=str(row.get("bank_code", "") or ""),
+                bank_name=str(row.get("bank_name", "") or ""),
                 acc_norm=acc_norm,
                 acc_tail=acc_tail,
             )
@@ -1477,7 +1476,7 @@ def reconcile_by_description(
                     "side": "api",
                     "id": row["id"],
                     "descriptionraw": row.get("descriptionraw"),
-                    "date_br": row["date_br"],
+                    "date": row["date"],
                     "amount": float(row["amount"]),
                     "matched_erp_cd_lanc": erp_keys_str,
                     "raw": row.to_dict(),
@@ -1593,6 +1592,14 @@ def transform(
         return {k: pl.DataFrame() for k in ["matches", "unrec_api", "unrec_erp", "daily", "monthly"]}
 
     cal = build_calendar(DATE_FROM, DATE_TO, 15)
+
+    bank_meta = (
+        pl.concat([
+            A0.select(["tenant_id", "bank_code", "bank_name"]),
+            E0.select(["tenant_id", "bank_code", "bank_name"]),
+        ], how="vertical")
+        .unique(subset=["tenant_id", "bank_code"])
+    )
 
     A = (
         A0.join(cal.rename({"cal_date": "api_date"}), on="api_date", how="left")
@@ -2045,6 +2052,7 @@ def transform(
             schema=[
                 ("tenant_id", pl.Utf8),
                 ("bank_code", pl.Utf8),
+                ("bank_name", pl.Utf8),
                 ("acc_tail", pl.Utf8),
                 ("date", pl.Date),
                 ("api_matched_abs", pl.Float64),
@@ -2059,6 +2067,7 @@ def transform(
             schema=[
                 ("tenant_id", pl.Utf8),
                 ("bank_code", pl.Utf8),
+                ("bank_name", pl.Utf8),
                 ("acc_tail", pl.Utf8),
                 ("month", pl.Date),
                 ("api_matched_abs", pl.Float64),
@@ -2169,7 +2178,12 @@ def transform(
                 pl.col("erp_unrec_abs").sum().round(2).alias("erp_unrec_abs"),
                 pl.col("unrec_total_abs").sum().round(2).alias("unrec_total_abs"),
             ])
-        )
+    )
+
+    unrec_api = unrec_api.join(bank_meta, on=["tenant_id", "bank_code"], how="left")
+    unrec_erp = unrec_erp.join(bank_meta, on=["tenant_id", "bank_code"], how="left")
+    daily = daily.join(bank_meta, on=["tenant_id", "bank_code"], how="left")
+    monthly = monthly.join(bank_meta, on=["tenant_id", "bank_code"], how="left")
 
     matches_audit = (
         matches
@@ -2207,7 +2221,8 @@ CREATE TABLE IF NOT EXISTS gold_unreconciled_api (
     amount numeric(18,2),
     api_id text,
     desc_norm text,
-    bank_code text
+    bank_code text,
+    bank_name text
 )
 """
 
@@ -2219,7 +2234,8 @@ CREATE TABLE IF NOT EXISTS gold_unreconciled_erp (
     amount numeric(18,2),
     cd_lancamento text,
     desc_norm text,
-    bank_code text
+    bank_code text,
+    bank_name text
 )
 """
 
@@ -2227,6 +2243,7 @@ CREATE_DAILY = """
 CREATE TABLE IF NOT EXISTS gold_conciliation_daily (
     tenant_id text,
     bank_code text,
+    bank_name text,
     acc_tail text,
     date date,
     api_matched_abs numeric(18,2),
@@ -2242,6 +2259,7 @@ CREATE_MONTHLY = """
 CREATE TABLE IF NOT EXISTS gold_conciliation_monthly (
     tenant_id text,
     bank_code text,
+    bank_name text,
     acc_tail text,
     month date,
     api_matched_abs numeric(18,2),
@@ -2309,12 +2327,69 @@ def main():
     gold = transform(A0, E0, desc_edges_by_type)
 
     print("[*] Gravando gold no Postgres…")
+    gold_for_pg = {
+        "matches": gold["matches"].select([
+            "api_row_id",
+            "erp_row_id",
+            "api_uid",
+            "erp_uid",
+            "stage",
+            "prio",
+            "ddiff",
+        ]),
+        "unrec_api": gold["unrec_api"].select([
+            "tenant_id",
+            "acc_tail",
+            "date",
+            "amount",
+            "api_id",
+            "desc_norm",
+            "bank_code",
+            "bank_name",
+        ]),
+        "unrec_erp": gold["unrec_erp"].select([
+            "tenant_id",
+            "acc_tail",
+            "date",
+            "amount",
+            "cd_lancamento",
+            "desc_norm",
+            "bank_code",
+            "bank_name",
+        ]),
+        "daily": gold["daily"].select([
+            "tenant_id",
+            "bank_code",
+            "bank_name",
+            "acc_tail",
+            "date",
+            "api_matched_abs",
+            "erp_matched_abs",
+            "api_unrec_abs",
+            "erp_unrec_abs",
+            "unrec_total_abs",
+            "unrec_diff",
+        ]),
+        "monthly": gold["monthly"].select([
+            "tenant_id",
+            "bank_code",
+            "bank_name",
+            "acc_tail",
+            "month",
+            "api_matched_abs",
+            "erp_matched_abs",
+            "api_unrec_abs",
+            "erp_unrec_abs",
+            "unrec_total_abs",
+        ]),
+    }
+
     with pg_conn() as conn:
-        df_to_pg(conn, gold["matches"],    "gold_conciliation_matches",  CREATE_MATCHES)
-        df_to_pg(conn, gold["unrec_api"],  "gold_unreconciled_api",      CREATE_UNREC_API)
-        df_to_pg(conn, gold["unrec_erp"],  "gold_unreconciled_erp",      CREATE_UNREC_ERP)
-        df_to_pg(conn, gold["daily"],      "gold_conciliation_daily",    CREATE_DAILY)
-        df_to_pg(conn, gold["monthly"],    "gold_conciliation_monthly",  CREATE_MONTHLY)
+        df_to_pg(conn, gold_for_pg["matches"],   "gold_conciliation_matches",  CREATE_MATCHES)
+        df_to_pg(conn, gold_for_pg["unrec_api"], "gold_unreconciled_api",      CREATE_UNREC_API)
+        df_to_pg(conn, gold_for_pg["unrec_erp"], "gold_unreconciled_erp",      CREATE_UNREC_ERP)
+        df_to_pg(conn, gold_for_pg["daily"],     "gold_conciliation_daily",    CREATE_DAILY)
+        df_to_pg(conn, gold_for_pg["monthly"],   "gold_conciliation_monthly",  CREATE_MONTHLY)
 
     print(f"[OK] Concluído em {time.perf_counter() - t0:.2f}s")
 
