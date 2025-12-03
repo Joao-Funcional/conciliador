@@ -72,6 +72,9 @@ export function UnreconciledDetails({
   const [anchorSide, setAnchorSide] = useState<"api" | "erp" | null>(null)
   const [selectionWarning, setSelectionWarning] = useState<string | null>(null)
   const [isWindowFilterActive, setIsWindowFilterActive] = useState(false)
+  const [reconciledFilter, setReconciledFilter] = useState<
+    "all" | "oneToOne" | "erpAnchored" | "apiAnchored" | "fallback"
+  >("all")
 
   const fetchDayData = async (applyUnreconciled: boolean) => {
     setLoading(true)
@@ -148,6 +151,7 @@ export function UnreconciledDetails({
     if (showReconciled) {
       fetchDayData(false)
     }
+    setReconciledFilter("all")
   }, [showReconciled])
 
   const formatCurrency = (value: number) => {
@@ -178,13 +182,76 @@ export function UnreconciledDetails({
       .map((d) => d.toLocaleDateString("pt-BR"))
   }, [windowDates])
 
-  const sortedMatches = useMemo(() => {
-    return [...matches].sort((a, b) => {
-      if (a.prio !== b.prio) return a.prio - b.prio
-      if (a.api_uid !== b.api_uid) return a.api_uid.localeCompare(b.api_uid)
-      return a.erp_uid.localeCompare(b.erp_uid)
+  const matchCounts = useMemo(() => {
+    const api = new Map<string, number>()
+    const erp = new Map<string, number>()
+
+    matches.forEach((match) => {
+      api.set(match.api_uid, (api.get(match.api_uid) ?? 0) + 1)
+      erp.set(match.erp_uid, (erp.get(match.erp_uid) ?? 0) + 1)
     })
+
+    return { api, erp }
   }, [matches])
+
+  const categorizeMatch = (match: Match) => {
+    const apiCount = matchCounts.api.get(match.api_uid) ?? 0
+    const erpCount = matchCounts.erp.get(match.erp_uid) ?? 0
+
+    if (apiCount === 1 && erpCount === 1) return "oneToOne" as const
+    if (apiCount > 1 && erpCount === 1) return "erpAnchored" as const
+    if (apiCount === 1 && erpCount > 1) return "apiAnchored" as const
+    return "fallback" as const
+  }
+
+  const sortedMatches = useMemo(() => {
+    const groups = new Map<string, Match[]>()
+
+    matches.forEach((match) => {
+      const apiCount = matchCounts.api.get(match.api_uid) ?? 0
+      const erpCount = matchCounts.erp.get(match.erp_uid) ?? 0
+
+      let key: string
+      if (apiCount > 1 && erpCount === 1) {
+        key = `erp:${match.erp_uid}`
+      } else if (apiCount === 1 && erpCount > 1) {
+        key = `api:${match.api_uid}`
+      } else {
+        key = `pair:${match.api_uid}:${match.erp_uid}`
+      }
+
+      const existing = groups.get(key) ?? []
+      existing.push(match)
+      groups.set(key, existing)
+    })
+
+    const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
+      const aKey = a.split(":").slice(1).join(":")
+      const bKey = b.split(":").slice(1).join(":")
+      return aKey.localeCompare(bKey)
+    })
+
+    return sortedKeys.flatMap((key) => {
+      const group = groups.get(key) ?? []
+      return group.sort((a, b) => {
+        if (a.api_uid !== b.api_uid) return a.api_uid.localeCompare(b.api_uid)
+        if (a.erp_uid !== b.erp_uid) return a.erp_uid.localeCompare(b.erp_uid)
+        return a.prio - b.prio
+      })
+    })
+  }, [matches, matchCounts])
+
+  const filteredMatches = useMemo(() => {
+    if (reconciledFilter === "all") return sortedMatches
+
+    return sortedMatches.filter((match) => {
+      const category = categorizeMatch(match)
+      if (reconciledFilter === "oneToOne") return category === "oneToOne"
+      if (reconciledFilter === "erpAnchored") return category === "erpAnchored"
+      if (reconciledFilter === "apiAnchored") return category === "apiAnchored"
+      return category === "fallback"
+    })
+  }, [sortedMatches, reconciledFilter, matchCounts])
 
   const selectedApiTotal = Array.from(selectedApi).reduce((sum, id) => sum + (apiById.get(id)?.amount ?? 0), 0)
   const selectedErpTotal = Array.from(selectedErp).reduce((sum, id) => sum + (erpById.get(id)?.amount ?? 0), 0)
@@ -346,33 +413,74 @@ export function UnreconciledDetails({
       ) : (
         <>
           {showReconciled ? (
-            <div className="mt-4">
-              <h3 className="text-lg font-semibold text-foreground mb-4">Transações Conciliadas</h3>
-              {sortedMatches.length > 0 ? (
+            <div className="mt-4 space-y-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <h3 className="text-xl font-semibold text-foreground">Transações Conciliadas</h3>
+                <div className="flex flex-wrap gap-2 text-sm">
+                  <Button
+                    size="sm"
+                    variant={reconciledFilter === "all" ? "default" : "outline"}
+                    onClick={() => setReconciledFilter("all")}
+                  >
+                    Todas
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={reconciledFilter === "oneToOne" ? "default" : "outline"}
+                    onClick={() => setReconciledFilter("oneToOne")}
+                  >
+                    1 × 1
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={reconciledFilter === "erpAnchored" ? "default" : "outline"}
+                    onClick={() => setReconciledFilter("erpAnchored")}
+                  >
+                    1 (Extrato) × N (Cliente)
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={reconciledFilter === "apiAnchored" ? "default" : "outline"}
+                    onClick={() => setReconciledFilter("apiAnchored")}
+                  >
+                    1 (Cliente) × N (Extrato)
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={reconciledFilter === "fallback" ? "default" : "outline"}
+                    onClick={() => setReconciledFilter("fallback")}
+                  >
+                    Fallbacks
+                  </Button>
+                </div>
+              </div>
+
+              {filteredMatches.length > 0 ? (
                 <div className="space-y-3">
-                  {sortedMatches.map((match) => (
+                  {filteredMatches.map((match) => (
                     <Card
-                      key={`${match.api_uid}-${match.erp_uid}`}
+                      key={`${match.api_uid}-${match.erp_uid}-${match.stage}`}
                       className="p-4 bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800"
                     >
                       <div className="grid grid-cols-3 gap-4">
                         <div>
-                          <p className="text-xs text-muted-foreground mb-1">Extrato</p>
-                          <p className="font-semibold text-foreground text-sm">{formatCurrency(match.api_amount)}</p>
-                          <p className="text-xs text-muted-foreground">{parseDateOnly(match.api_date).toLocaleDateString("pt-BR")}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{match.api_desc}</p>
+                          <p className="text-xs font-semibold text-emerald-900 dark:text-emerald-200 mb-1">Extrato</p>
+                          <p className="font-semibold text-foreground text-base">{formatCurrency(match.api_amount)}</p>
+                          <p className="text-sm text-slate-700 dark:text-slate-200">{parseDateOnly(match.api_date).toLocaleDateString("pt-BR")}</p>
+                          <p className="text-sm text-slate-700 dark:text-slate-200 mt-1">{match.api_desc}</p>
+                          <p className="text-xs text-emerald-800 dark:text-emerald-200 mt-1 font-semibold">ID API: {match.api_uid}</p>
                         </div>
                         <div className="flex items-center justify-center">
-                          <span className="text-green-600 font-bold">↔</span>
+                          <span className="text-green-700 dark:text-green-300 font-bold text-lg">↔</span>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground mb-1">Cliente</p>
-                          <p className="font-semibold text-foreground text-sm">{formatCurrency(match.erp_amount)}</p>
-                          <p className="text-xs text-muted-foreground">{parseDateOnly(match.erp_date).toLocaleDateString("pt-BR")}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{match.erp_desc}</p>
+                          <p className="text-xs font-semibold text-emerald-900 dark:text-emerald-200 mb-1">Cliente</p>
+                          <p className="font-semibold text-foreground text-base">{formatCurrency(match.erp_amount)}</p>
+                          <p className="text-sm text-slate-700 dark:text-slate-200">{parseDateOnly(match.erp_date).toLocaleDateString("pt-BR")}</p>
+                          <p className="text-sm text-slate-700 dark:text-slate-200 mt-1">{match.erp_desc}</p>
+                          <p className="text-xs text-emerald-800 dark:text-emerald-200 mt-1 font-semibold">CD Cliente: {match.erp_uid}</p>
                         </div>
                       </div>
-                      <div className="mt-2 text-xs text-muted-foreground">Estágio: {match.stage}</div>
                     </Card>
                   ))}
                 </div>
@@ -424,8 +532,10 @@ export function UnreconciledDetails({
 
                 <div className="rounded-md bg-slate-100 dark:bg-slate-900 px-4 py-3 text-sm text-foreground flex items-center gap-3 w-full md:w-auto">
                   <div>
-                    <p className="font-semibold">Selecionados</p>
-                    <p className="text-muted-foreground">Extrato {formatCurrency(selectedApiTotal)} · Cliente {formatCurrency(selectedErpTotal)}</p>
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">Selecionados</p>
+                    <p className="text-slate-800 dark:text-slate-100 font-medium">
+                      Extrato {formatCurrency(selectedApiTotal)} · Cliente {formatCurrency(selectedErpTotal)}
+                    </p>
                     {!totalsMatch && (selectedApi.size > 0 || selectedErp.size > 0) && (
                       <p className="text-xs text-destructive mt-1">Os totais precisam ser iguais</p>
                     )}
@@ -470,11 +580,11 @@ export function UnreconciledDetails({
                           }`}
                           onClick={() => handleApiToggle(item)}
                         >
-                          <div className="text-sm">
-                            <p className="font-semibold text-foreground">{formatCurrency(item.amount)}</p>
-                            <p className="text-xs text-muted-foreground mt-1">{parseDateOnly(item.date).toLocaleDateString("pt-BR")}</p>
-                            <p className="text-xs text-muted-foreground mt-1">{item.desc_norm}</p>
-                            <p className="text-xs text-muted-foreground mt-1">ID: {item.api_id.substring(0, 12)}...</p>
+                          <div className="text-sm text-slate-800 dark:text-slate-100">
+                            <p className="font-semibold text-lg text-foreground">{formatCurrency(item.amount)}</p>
+                            <p className="text-sm mt-1">{parseDateOnly(item.date).toLocaleDateString("pt-BR")}</p>
+                            <p className="text-sm mt-1">{item.desc_norm}</p>
+                            <p className="text-xs text-emerald-800 dark:text-emerald-200 mt-1 font-semibold">ID API: {item.api_id}</p>
                           </div>
                         </Card>
                       ))
@@ -500,11 +610,11 @@ export function UnreconciledDetails({
                           }`}
                           onClick={() => handleErpToggle(item)}
                         >
-                          <div className="text-sm">
-                            <p className="font-semibold text-foreground">{formatCurrency(item.amount)}</p>
-                            <p className="text-xs text-muted-foreground mt-1">{parseDateOnly(item.date).toLocaleDateString("pt-BR")}</p>
-                            <p className="text-xs text-muted-foreground mt-1">{item.desc_norm}</p>
-                            <p className="text-xs text-muted-foreground mt-1">CD: {item.cd_lancamento}</p>
+                          <div className="text-sm text-slate-800 dark:text-slate-100">
+                            <p className="font-semibold text-lg text-foreground">{formatCurrency(item.amount)}</p>
+                            <p className="text-sm mt-1">{parseDateOnly(item.date).toLocaleDateString("pt-BR")}</p>
+                            <p className="text-sm mt-1">{item.desc_norm}</p>
+                            <p className="text-xs text-emerald-800 dark:text-emerald-200 mt-1 font-semibold">CD Cliente: {item.cd_lancamento}</p>
                           </div>
                         </Card>
                       ))

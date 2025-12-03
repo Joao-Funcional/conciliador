@@ -188,9 +188,9 @@ export function MonthlyCalendar({
                     <div className="text-sm font-semibold text-foreground">{day}</div>
                     {dayData && (
                       <>
-                        <div className="text-xs mt-1">
-                          <p className="text-muted-foreground">API: {formatCurrency(dayData.api_matched_abs)}</p>
-                          <p className="text-muted-foreground">ERP: {formatCurrency(dayData.erp_matched_abs)}</p>
+                        <div className="text-sm mt-1">
+                          <p className="font-semibold text-emerald-900 dark:text-emerald-200">API: {formatCurrency(dayData.api_matched_abs)}</p>
+                          <p className="font-semibold text-emerald-900 dark:text-emerald-200">ERP: {formatCurrency(dayData.erp_matched_abs)}</p>
                           {dayData.unrec_total_abs > 0 && (
                             <p className="text-destructive font-semibold mt-1">
                               ⚠ {formatCurrency(dayData.unrec_total_abs)}
