@@ -76,7 +76,7 @@ export function UnreconciledDetails({
     "all" | "oneToOne" | "erpAnchored" | "apiAnchored" | "fallback"
   >("all")
 
-  const fetchDayData = async (applyUnreconciled: boolean) => {
+  const fetchDayData = async (applyUnreconciled: boolean, strictDateForMatches = false) => {
     setLoading(true)
     setError(null)
     try {
@@ -86,6 +86,7 @@ export function UnreconciledDetails({
         accTail,
         date,
       })
+      params.append("strictDate", strictDateForMatches ? "true" : "false")
       const response = await fetch(`/api/day-details?${params.toString()}`)
       if (!response.ok) {
         const payload = await response.json().catch(() => ({ error: "Erro ao carregar dados" }))
@@ -149,7 +150,7 @@ export function UnreconciledDetails({
 
   useEffect(() => {
     if (showReconciled) {
-      fetchDayData(false)
+      fetchDayData(false, true)
     }
     setReconciledFilter("all")
   }, [showReconciled])
