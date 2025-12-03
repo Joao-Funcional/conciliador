@@ -188,11 +188,27 @@ export function MonthlyCalendar({
                     <div className="text-sm font-semibold text-foreground">{day}</div>
                     {dayData && (
                       <>
-                        <div className="text-sm mt-1">
-                          <p className="font-semibold text-emerald-900 dark:text-emerald-200">API: {formatCurrency(dayData.api_matched_abs)}</p>
-                          <p className="font-semibold text-emerald-900 dark:text-emerald-200">ERP: {formatCurrency(dayData.erp_matched_abs)}</p>
+                        <div className="text-[13px] leading-tight mt-1 space-y-1">
+                          <p
+                            className={`font-semibold whitespace-nowrap ${
+                              dayData.unrec_total_abs
+                                ? "text-amber-900 dark:text-amber-100"
+                                : "text-emerald-800 dark:text-emerald-100"
+                            }`}
+                          >
+                            API: {formatCurrency(dayData.api_matched_abs)}
+                          </p>
+                          <p
+                            className={`font-semibold whitespace-nowrap ${
+                              dayData.unrec_total_abs
+                                ? "text-amber-900 dark:text-amber-100"
+                                : "text-emerald-800 dark:text-emerald-100"
+                            }`}
+                          >
+                            ERP: {formatCurrency(dayData.erp_matched_abs)}
+                          </p>
                           {dayData.unrec_total_abs > 0 && (
-                            <p className="text-destructive font-semibold mt-1">
+                            <p className="text-xs text-destructive font-semibold mt-1 whitespace-nowrap">
                               ⚠ {formatCurrency(dayData.unrec_total_abs)}
                             </p>
                           )}

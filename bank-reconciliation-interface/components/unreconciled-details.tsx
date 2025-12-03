@@ -264,10 +264,20 @@ export function UnreconciledDetails({
       const next = new Set(prev)
       if (next.has(item.api_id)) {
         next.delete(item.api_id)
-        const newAnchorSide = next.size > 0 ? "api" : selectedErp.size > 0 ? "erp" : null
-        setAnchorSide(newAnchorSide)
-        if (newAnchorSide === null && !isWindowFilterActive) {
-          setBaseSelectionDate(null)
+        const wasAnchor = anchorSide === "api"
+        if (wasAnchor) {
+          setSelectedErp(new Set())
+          setAnchorSide(null)
+          if (!isWindowFilterActive) {
+            setBaseSelectionDate(null)
+          }
+        } else {
+          if (next.size === 0 && selectedErp.size === 0) {
+            setAnchorSide(null)
+            if (!isWindowFilterActive) {
+              setBaseSelectionDate(null)
+            }
+          }
         }
       } else {
         if (anchorSide === "api" && next.size >= 1) {
@@ -292,10 +302,20 @@ export function UnreconciledDetails({
       const next = new Set(prev)
       if (next.has(item.cd_lancamento)) {
         next.delete(item.cd_lancamento)
-        const newAnchorSide = selectedApi.size > 0 ? "api" : next.size > 0 ? "erp" : null
-        setAnchorSide(newAnchorSide)
-        if (newAnchorSide === null && !isWindowFilterActive) {
-          setBaseSelectionDate(null)
+        const wasAnchor = anchorSide === "erp"
+        if (wasAnchor) {
+          setSelectedApi(new Set())
+          setAnchorSide(null)
+          if (!isWindowFilterActive) {
+            setBaseSelectionDate(null)
+          }
+        } else {
+          if (next.size === 0 && selectedApi.size === 0) {
+            setAnchorSide(null)
+            if (!isWindowFilterActive) {
+              setBaseSelectionDate(null)
+            }
+          }
         }
       } else {
         if (anchorSide === "erp" && next.size >= 1) {
