@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { query } from "@/lib/db"
+import { normalizeAmount } from "@/lib/normalize-amount"
 
 function isWeekend(date: Date) {
   const day = date.getUTCDay()
@@ -33,6 +34,26 @@ function getCandidateDates(baseDate: string) {
     .filter((value, index, self) => self.indexOf(value) === index)
 }
 
+type UnreconciledApiRow = {
+  tenant_id: string
+  bank_code: string
+  acc_tail: string
+  date: string
+  amount: string | number | null
+  api_id: string
+  desc_norm: string | null
+}
+
+type UnreconciledErpRow = {
+  tenant_id: string
+  bank_code: string
+  acc_tail: string
+  date: string
+  amount: string | number | null
+  cd_lancamento: string
+  desc_norm: string | null
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const tenantId = searchParams.get("tenant")
@@ -50,23 +71,33 @@ export async function GET(request: Request) {
   }
 
   try {
-    const unreconciledApi = await query(
+    const unreconciledApiRaw = await query<UnreconciledApiRow>(
       `SELECT tenant_id, bank_code, acc_tail, date::text AS date,
-              COALESCE(amount,0)::float AS amount, api_id, desc_norm
+              COALESCE(amount::text,'0') AS amount, api_id, desc_norm
        FROM gold_unreconciled_api
        WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date = ANY($4::date[])
        ORDER BY date DESC, amount DESC`,
       [tenantId, bankCode, accTail, candidateDates]
     )
 
-    const unreconciledErp = await query(
+    const unreconciledApi = unreconciledApiRaw.map((row) => ({
+      ...row,
+      amount: normalizeAmount(row.amount),
+    }))
+
+    const unreconciledErpRaw = await query<UnreconciledErpRow>(
       `SELECT tenant_id, bank_code, acc_tail, date::text AS date,
-              COALESCE(amount,0)::float AS amount, cd_lancamento, desc_norm
+              COALESCE(amount::text,'0') AS amount, cd_lancamento, desc_norm
        FROM gold_unreconciled_erp
        WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND date = ANY($4::date[])
        ORDER BY date DESC, amount DESC`,
       [tenantId, bankCode, accTail, candidateDates]
     )
+
+    const unreconciledErp = unreconciledErpRaw.map((row) => ({
+      ...row,
+      amount: normalizeAmount(row.amount),
+    }))
 
     return NextResponse.json({
       dates: candidateDates,

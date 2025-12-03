@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getClient } from "@/lib/db"
+import { normalizeAmount } from "@/lib/normalize-amount"
 
 type ApiRow = {
   api_id: string
@@ -7,9 +8,21 @@ type ApiRow = {
   date: string
 }
 
+type ApiRowRaw = {
+  api_id: string
+  amount: string | number | null
+  date: string
+}
+
 type ErpRow = {
   cd_lancamento: string
   amount: number
+  date: string
+}
+
+type ErpRowRaw = {
+  cd_lancamento: string
+  amount: string | number | null
   date: string
 }
 
@@ -40,23 +53,35 @@ export async function POST(request: Request) {
   try {
     await client.query("BEGIN")
 
-    const apiRows = (
-      await client.query<ApiRow>(
-        `SELECT api_id, COALESCE(amount,0)::float AS amount, date::text AS date
+    const apiRowsRaw = (
+      await client.query<ApiRowRaw>(
+        `SELECT api_id, COALESCE(amount::text,'0') AS amount, date::text AS date
          FROM gold_unreconciled_api
          WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND api_id = ANY($4)`,
         [tenantId, bankCode, accTail, apiIds]
       )
     ).rows
 
-    const erpRows = (
-      await client.query<ErpRow>(
-        `SELECT cd_lancamento, COALESCE(amount,0)::float AS amount, date::text AS date
+    const apiRows: ApiRow[] = apiRowsRaw.map((row) => ({
+      api_id: row.api_id,
+      amount: normalizeAmount(row.amount),
+      date: row.date,
+    }))
+
+    const erpRowsRaw = (
+      await client.query<ErpRowRaw>(
+        `SELECT cd_lancamento, COALESCE(amount::text,'0') AS amount, date::text AS date
          FROM gold_unreconciled_erp
          WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND cd_lancamento = ANY($4)`,
         [tenantId, bankCode, accTail, erpIds]
       )
     ).rows
+
+    const erpRows: ErpRow[] = erpRowsRaw.map((row) => ({
+      cd_lancamento: row.cd_lancamento,
+      amount: normalizeAmount(row.amount),
+      date: row.date,
+    }))
 
     if (apiRows.length !== apiIds.length || erpRows.length !== erpIds.length) {
       throw new Error("Alguns lançamentos selecionados não estão mais disponíveis para conciliação")
