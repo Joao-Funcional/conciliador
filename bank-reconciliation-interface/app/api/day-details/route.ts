@@ -39,14 +39,15 @@ export async function GET(request: Request) {
   const bankCode = searchParams.get("bank")
   const accTail = searchParams.get("accTail")
   const date = searchParams.get("date")
+  const strictDate = searchParams.get("strictDate") === "true"
 
   if (!tenantId || !bankCode || !accTail || !date) {
     return NextResponse.json({ error: "Parâmetros obrigatórios ausentes" }, { status: 400 })
   }
 
   try {
-    const candidateDates = getCandidateDates(date)
-    const dateFilter = candidateDates.length > 0 ? candidateDates : [date]
+    const candidateDates = strictDate ? [] : getCandidateDates(date)
+    const dateFilter = strictDate ? [date] : candidateDates.length > 0 ? candidateDates : [date]
 
     const unreconciledApi = await query(
       `SELECT tenant_id, bank_code, acc_tail, date::text AS date,

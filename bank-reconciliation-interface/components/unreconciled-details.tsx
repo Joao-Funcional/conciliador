@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft } from "lucide-react"
@@ -75,8 +75,10 @@ export function UnreconciledDetails({
   const [reconciledFilter, setReconciledFilter] = useState<
     "all" | "oneToOne" | "erpAnchored" | "apiAnchored" | "fallback"
   >("all")
+  const fetchIdRef = useRef(0)
 
-  const fetchDayData = async (applyUnreconciled: boolean) => {
+  const fetchDayData = async (applyUnreconciled: boolean, strictDateForMatches = false) => {
+    const fetchId = ++fetchIdRef.current
     setLoading(true)
     setError(null)
     try {
@@ -86,6 +88,7 @@ export function UnreconciledDetails({
         accTail,
         date,
       })
+      params.append("strictDate", strictDateForMatches ? "true" : "false")
       const response = await fetch(`/api/day-details?${params.toString()}`)
       if (!response.ok) {
         const payload = await response.json().catch(() => ({ error: "Erro ao carregar dados" }))
@@ -98,12 +101,16 @@ export function UnreconciledDetails({
         setUnrecErp(payload.unreconciledErp ?? [])
         setWindowDates([date])
       }
-      setMatches(payload.matches ?? [])
+      if (fetchId === fetchIdRef.current) {
+        setMatches(payload.matches ?? [])
+      }
     } catch (err: any) {
       console.error(err)
       setError(err?.message ?? "Erro ao buscar dados")
     } finally {
-      setLoading(false)
+      if (fetchId === fetchIdRef.current) {
+        setLoading(false)
+      }
     }
   }
 
@@ -149,7 +156,7 @@ export function UnreconciledDetails({
 
   useEffect(() => {
     if (showReconciled) {
-      fetchDayData(false)
+      fetchDayData(false, true)
     }
     setReconciledFilter("all")
   }, [showReconciled])
