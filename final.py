@@ -1845,7 +1845,7 @@ def transform(
 
     # ---------- KSUM SAME-DAY (N:1 e 1:N) ----------
     if not A.is_empty() and not E.is_empty():
-        A_k = A.filter(~pl.col("api_is_rent")).select([
+        A_k = A.select([
             pl.col("api_row_id"),
             pl.lit(None, dtype=pl.Int64).alias("erp_row_id"),
             "tenant_id",
