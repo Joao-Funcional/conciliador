@@ -102,14 +102,7 @@ export function UnreconciledDetails({
         setWindowDates([date])
       }
       if (fetchId === fetchIdRef.current) {
-        const matches = payload.matches ?? []
-        const filteredMatches = strictDateForMatches
-          ? matches.filter(
-              (match: Match) =>
-                match.api_date?.slice(0, 10) === date && match.erp_date?.slice(0, 10) === date,
-            )
-          : matches
-        setMatches(filteredMatches)
+        setMatches(payload.matches ?? [])
       }
     } catch (err: any) {
       console.error(err)
