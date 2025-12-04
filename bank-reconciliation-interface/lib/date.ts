@@ -1,4 +1,5 @@
 export function parseDateOnly(dateString: string) {
-  const [year, month, day] = dateString.split("-").map(Number)
+  const cleanDate = dateString.slice(0, 10)
+  const [year, month, day] = cleanDate.split("-").map(Number)
   return new Date(year, (month || 1) - 1, day || 1)
 }
