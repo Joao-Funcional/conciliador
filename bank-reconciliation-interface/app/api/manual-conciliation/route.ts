@@ -145,7 +145,6 @@ export async function POST(request: Request) {
       count: erpRows.length,
       sample: erpRows.slice(0, 3),
     })
-
     if (apiRows.length !== normalizedApiIds.length || erpRows.length !== normalizedErpIds.length) {
       throw new Error("Alguns lançamentos selecionados não estão mais disponíveis para conciliação")
     }
