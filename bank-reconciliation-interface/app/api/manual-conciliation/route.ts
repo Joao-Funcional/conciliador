@@ -44,7 +44,40 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Parâmetros obrigatórios ausentes" }, { status: 400 })
   }
 
-  if (apiIds.length === 0 || erpIds.length === 0) {
+  const sanitizeIds = (ids: unknown[], label: string) => {
+    const valid: string[] = []
+    const invalid: string[] = []
+
+    ids.forEach((id) => {
+      const raw = String(id ?? "").trim()
+      const normalized = raw.replace(/,/g, ".")
+
+      if (!raw || !/^[-\p{L}\p{N}_.:]+$/u.test(normalized)) {
+        invalid.push(raw || "<vazio>")
+        return
+      }
+
+      valid.push(normalized)
+    })
+
+    if (invalid.length > 0) {
+      throw new Error(`IDs inválidos (${label}): ${invalid.join(", ")}`)
+    }
+
+    return valid
+  }
+
+  let normalizedApiIds: string[]
+  let normalizedErpIds: string[]
+
+  try {
+    normalizedApiIds = sanitizeIds(apiIds, "API")
+    normalizedErpIds = sanitizeIds(erpIds, "ERP")
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message ?? "IDs inválidos" }, { status: 400 })
+  }
+
+  if (normalizedApiIds.length === 0 || normalizedErpIds.length === 0) {
     return NextResponse.json({ error: "Selecione pelo menos um lançamento de cada lado" }, { status: 400 })
   }
 
@@ -58,7 +91,7 @@ export async function POST(request: Request) {
         `SELECT api_id, COALESCE(amount::text,'0') AS amount, date::text AS date
          FROM gold_unreconciled_api
          WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND api_id::text = ANY($4)`,
-        [tenantId, bankCode, accTail, apiIds]
+        [tenantId, bankCode, accTail, normalizedApiIds]
       )
     ).rows
 
@@ -73,7 +106,7 @@ export async function POST(request: Request) {
         `SELECT cd_lancamento, COALESCE(amount::text,'0') AS amount, date::text AS date
          FROM gold_unreconciled_erp
          WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND cd_lancamento::text = ANY($4)`,
-        [tenantId, bankCode, accTail, erpIds]
+        [tenantId, bankCode, accTail, normalizedErpIds]
       )
     ).rows
 
@@ -83,7 +116,7 @@ export async function POST(request: Request) {
       date: row.date,
     }))
 
-    if (apiRows.length !== apiIds.length || erpRows.length !== erpIds.length) {
+    if (apiRows.length !== normalizedApiIds.length || erpRows.length !== normalizedErpIds.length) {
       throw new Error("Alguns lançamentos selecionados não estão mais disponíveis para conciliação")
     }
 
@@ -103,9 +136,9 @@ export async function POST(request: Request) {
     const matchValues: Array<{ apiId: string; erpId: string; ddiff: number }> = []
     const matchImpact = new Map<string, { api: number; erp: number }>()
 
-    for (const apiId of apiIds) {
+    for (const apiId of normalizedApiIds) {
       const api = apiMap.get(apiId)!
-      for (const erpId of erpIds) {
+      for (const erpId of normalizedErpIds) {
         const erp = erpMap.get(erpId)!
         const dateKey = `${erp.date}`
         const current = matchImpact.get(dateKey) ?? { api: 0, erp: 0 }
@@ -140,13 +173,13 @@ export async function POST(request: Request) {
     await client.query(
       `DELETE FROM gold_unreconciled_api
        WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND api_id::text = ANY($4)`,
-      [tenantId, bankCode, accTail, apiIds]
+      [tenantId, bankCode, accTail, normalizedApiIds]
     )
 
     await client.query(
       `DELETE FROM gold_unreconciled_erp
        WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND cd_lancamento::text = ANY($4)`,
-      [tenantId, bankCode, accTail, erpIds]
+      [tenantId, bankCode, accTail, normalizedErpIds]
     )
 
     const apiUnrecAdjust = new Map<string, number>()
