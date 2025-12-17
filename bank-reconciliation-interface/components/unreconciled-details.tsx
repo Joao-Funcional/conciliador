@@ -517,77 +517,79 @@ export function UnreconciledDetails({
             </div>
           ) : (
             <>
-              <div className="flex flex-wrap gap-3 mb-4">
-                <div className="rounded-md bg-slate-100 dark:bg-slate-900 px-4 py-3 text-sm text-foreground w-full md:w-auto">
-                  <p className="font-semibold">Janela de busca</p>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {formattedWindowDates.map((label) => (
-                      <span
-                        key={label}
-                        className="rounded-full bg-slate-200 dark:bg-slate-800 px-3 py-1 text-xs text-foreground"
-                      >
-                        {label}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {baseSelectionDate
-                      ? `Ancorada em ${parseDateOnly(baseSelectionDate).toLocaleDateString("pt-BR")}`
-                      : "Use o filtro para abrir a janela de 2 dias úteis"}
-                  </p>
-                </div>
-
-                <div className="rounded-md bg-slate-100 dark:bg-slate-900 px-4 py-3 text-sm text-foreground flex flex-col gap-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">Filtro de datas</p>
-                      <p className="text-xs text-muted-foreground">
-                        Visualize somente a data atual ou expanda ±2 dias úteis.
-                      </p>
+              <div className="sticky top-4 z-20 mb-4">
+                <div className="flex flex-wrap gap-3 bg-background/90 p-2 rounded-lg shadow-sm border border-border">
+                  <div className="rounded-md bg-slate-100 dark:bg-slate-900 px-4 py-3 text-sm text-foreground w-full md:w-auto">
+                    <p className="font-semibold">Janela de busca</p>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {formattedWindowDates.map((label) => (
+                        <span
+                          key={label}
+                          className="rounded-full bg-slate-200 dark:bg-slate-800 px-3 py-1 text-xs text-foreground"
+                        >
+                          {label}
+                        </span>
+                      ))}
                     </div>
-                    <Button
-                      variant={isWindowFilterActive ? "default" : "outline"}
-                      size="sm"
-                      onClick={handleWindowFilterToggle}
-                      disabled={loading || loadingWindow}
-                    >
-                      {isWindowFilterActive ? "Remover filtro" : "Aplicar janela"}
-                    </Button>
-                  </div>
-                  {loadingWindow && <p className="text-xs text-muted-foreground">Atualizando janela...</p>}
-                </div>
-
-                <div className="rounded-md bg-slate-100 dark:bg-slate-900 px-4 py-3 text-sm text-foreground flex items-center gap-3 w-full md:w-auto">
-                  <div>
-                    <p className="font-semibold text-slate-900 dark:text-slate-100">Selecionados</p>
-                    <p className="text-slate-800 dark:text-slate-100 font-medium">
-                      Extrato {formatCurrency(selectedApiTotal)} · Cliente {formatCurrency(selectedErpTotal)}
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {baseSelectionDate
+                        ? `Ancorada em ${parseDateOnly(baseSelectionDate).toLocaleDateString("pt-BR")}`
+                        : "Use o filtro para abrir a janela de 2 dias úteis"}
                     </p>
-                    {!totalsMatch && (selectedApi.size > 0 || selectedErp.size > 0) && (
-                      <p className="text-xs text-destructive mt-1">Os totais precisam ser iguais</p>
-                    )}
-                    {totalsMatch && selectedApi.size > 0 && selectedErp.size > 0 && (
-                      <p className="text-xs text-green-600 dark:text-green-400 mt-1">Totais alinhados para conciliação</p>
-                    )}
-                    {selectionWarning && <p className="text-xs text-destructive mt-1">{selectionWarning}</p>}
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={clearSelection} disabled={loading || loadingWindow}>
-                      Limpar seleção
-                    </Button>
-                    <Button
-                      onClick={submitManualReconciliation}
-                      disabled={
-                        submitting ||
-                        loadingWindow ||
-                        selectedApi.size === 0 ||
-                        selectedErp.size === 0 ||
-                        !totalsMatch
-                      }
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      {submitting ? "Conciliando..." : "Conciliar manualmente"}
-                    </Button>
+
+                  <div className="rounded-md bg-slate-100 dark:bg-slate-900 px-4 py-3 text-sm text-foreground flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">Filtro de datas</p>
+                        <p className="text-xs text-muted-foreground">
+                          Visualize somente a data atual ou expanda ±2 dias úteis.
+                        </p>
+                      </div>
+                      <Button
+                        variant={isWindowFilterActive ? "default" : "outline"}
+                        size="sm"
+                        onClick={handleWindowFilterToggle}
+                        disabled={loading || loadingWindow}
+                      >
+                        {isWindowFilterActive ? "Remover filtro" : "Aplicar janela"}
+                      </Button>
+                    </div>
+                    {loadingWindow && <p className="text-xs text-muted-foreground">Atualizando janela...</p>}
+                  </div>
+
+                  <div className="rounded-md bg-slate-100 dark:bg-slate-900 px-4 py-3 text-sm text-foreground flex items-center gap-3 w-full md:w-auto">
+                    <div>
+                      <p className="font-semibold text-slate-900 dark:text-slate-100">Selecionados</p>
+                      <p className="text-slate-800 dark:text-slate-100 font-medium">
+                        Extrato {formatCurrency(selectedApiTotal)} · Cliente {formatCurrency(selectedErpTotal)}
+                      </p>
+                      {!totalsMatch && (selectedApi.size > 0 || selectedErp.size > 0) && (
+                        <p className="text-xs text-destructive mt-1">Os totais precisam ser iguais</p>
+                      )}
+                      {totalsMatch && selectedApi.size > 0 && selectedErp.size > 0 && (
+                        <p className="text-xs text-green-600 dark:text-green-400 mt-1">Totais alinhados para conciliação</p>
+                      )}
+                      {selectionWarning && <p className="text-xs text-destructive mt-1">{selectionWarning}</p>}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={clearSelection} disabled={loading || loadingWindow}>
+                        Limpar seleção
+                      </Button>
+                      <Button
+                        onClick={submitManualReconciliation}
+                        disabled={
+                          submitting ||
+                          loadingWindow ||
+                          selectedApi.size === 0 ||
+                          selectedErp.size === 0 ||
+                          !totalsMatch
+                        }
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        {submitting ? "Conciliando..." : "Conciliar manualmente"}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -57,7 +57,7 @@ export async function POST(request: Request) {
       await client.query<ApiRowRaw>(
         `SELECT api_id, COALESCE(amount::text,'0') AS amount, date::text AS date
          FROM gold_unreconciled_api
-         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND api_id = ANY($4)`,
+         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND api_id::text = ANY($4)`,
         [tenantId, bankCode, accTail, apiIds]
       )
     ).rows
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
       await client.query<ErpRowRaw>(
         `SELECT cd_lancamento, COALESCE(amount::text,'0') AS amount, date::text AS date
          FROM gold_unreconciled_erp
-         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND cd_lancamento = ANY($4)`,
+         WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND cd_lancamento::text = ANY($4)`,
         [tenantId, bankCode, accTail, erpIds]
       )
     ).rows
@@ -139,13 +139,13 @@ export async function POST(request: Request) {
 
     await client.query(
       `DELETE FROM gold_unreconciled_api
-       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND api_id = ANY($4)`,
+       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND api_id::text = ANY($4)`,
       [tenantId, bankCode, accTail, apiIds]
     )
 
     await client.query(
       `DELETE FROM gold_unreconciled_erp
-       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND cd_lancamento = ANY($4)`,
+       WHERE tenant_id = $1 AND bank_code = $2 AND acc_tail = $3 AND cd_lancamento::text = ANY($4)`,
       [tenantId, bankCode, accTail, erpIds]
     )
 
