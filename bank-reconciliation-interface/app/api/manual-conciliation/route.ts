@@ -235,6 +235,11 @@ export async function POST(request: Request) {
     ])
 
     for (const date of datesToUpdate) {
+      const toNumber = (value: unknown) => {
+        const num = typeof value === "number" ? value : Number(value)
+        return Number.isFinite(num) ? num : 0
+      }
+
       const current = (
         await client.query(
           `SELECT api_matched_abs, erp_matched_abs, api_unrec_abs, erp_unrec_abs
@@ -245,10 +250,10 @@ export async function POST(request: Request) {
         )
       ).rows[0]
 
-      const apiMatched = (current?.api_matched_abs ?? 0) + (matchImpact.get(date)?.api ?? 0)
-      const erpMatched = (current?.erp_matched_abs ?? 0) + (matchImpact.get(date)?.erp ?? 0)
-      const apiUnrec = Math.max((current?.api_unrec_abs ?? 0) - (apiUnrecAdjust.get(date) ?? 0), 0)
-      const erpUnrec = Math.max((current?.erp_unrec_abs ?? 0) - (erpUnrecAdjust.get(date) ?? 0), 0)
+      const apiMatched = toNumber(current?.api_matched_abs) + (matchImpact.get(date)?.api ?? 0)
+      const erpMatched = toNumber(current?.erp_matched_abs) + (matchImpact.get(date)?.erp ?? 0)
+      const apiUnrec = Math.max(toNumber(current?.api_unrec_abs) - (apiUnrecAdjust.get(date) ?? 0), 0)
+      const erpUnrec = Math.max(toNumber(current?.erp_unrec_abs) - (erpUnrecAdjust.get(date) ?? 0), 0)
       const unrecTotal = apiUnrec + erpUnrec
       const unrecDiff = erpUnrec - apiUnrec
 
