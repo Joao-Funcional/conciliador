@@ -52,7 +52,14 @@ export async function POST(request: Request) {
       const raw = String(id ?? "").trim()
       const normalized = raw.replace(/,/g, ".")
 
-      if (!raw || !/^[-\p{L}\p{N}_.:]+$/u.test(normalized)) {
+      const dotCount = (normalized.match(/\./g) ?? []).length
+      const numericish = /^[-+]?\d[\d.]*$/.test(normalized)
+
+      if (
+        !raw ||
+        !/^[-\p{L}\p{N}_.:]+$/u.test(normalized) ||
+        (numericish && dotCount > 1)
+      ) {
         invalid.push(raw || "<vazio>")
         return
       }
