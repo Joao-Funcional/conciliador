@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto"
 import { NextResponse } from "next/server"
 import { getClient } from "@/lib/db"
 import { normalizeAmount } from "@/lib/normalize-amount"
@@ -27,6 +28,7 @@ type ErpRowRaw = {
 }
 
 export async function POST(request: Request) {
+  const requestId = randomUUID()
   const body = await request.json().catch(() => null)
   if (!body) {
     return NextResponse.json({ error: "Payload inválido" }, { status: 400 })
@@ -88,6 +90,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Selecione pelo menos um lançamento de cada lado" }, { status: 400 })
   }
 
+  const logPrefix = `[manual-conciliation ${requestId}]`
+  console.info(logPrefix, "payload accepted", {
+    tenantId,
+    bankCode,
+    accTail,
+    apiIdsCount: normalizedApiIds.length,
+    erpIdsCount: normalizedErpIds.length,
+    apiIdsSample: normalizedApiIds.slice(0, 5),
+    erpIdsSample: normalizedErpIds.slice(0, 5),
+  })
+
   const client = await getClient()
 
   try {
@@ -108,6 +121,11 @@ export async function POST(request: Request) {
       date: row.date,
     }))
 
+    console.info(logPrefix, "api rows fetched", {
+      count: apiRows.length,
+      sample: apiRows.slice(0, 3),
+    })
+
     const erpRowsRaw = (
       await client.query<ErpRowRaw>(
         `SELECT cd_lancamento, COALESCE(amount::text,'0') AS amount, date::text AS date
@@ -123,6 +141,10 @@ export async function POST(request: Request) {
       date: row.date,
     }))
 
+    console.info(logPrefix, "erp rows fetched", {
+      count: erpRows.length,
+      sample: erpRows.slice(0, 3),
+    })
     if (apiRows.length !== normalizedApiIds.length || erpRows.length !== normalizedErpIds.length) {
       throw new Error("Alguns lançamentos selecionados não estão mais disponíveis para conciliação")
     }
@@ -136,6 +158,11 @@ export async function POST(request: Request) {
     if (roundedApi !== roundedErp) {
       throw new Error("Os valores selecionados precisam ter o mesmo total")
     }
+
+    console.info(logPrefix, "amounts matched", {
+      roundedApi,
+      roundedErp,
+    })
 
     const apiMap = new Map(apiRows.map((row) => [row.api_id, row]))
     const erpMap = new Map(erpRows.map((row) => [row.cd_lancamento, row]))
@@ -271,11 +298,29 @@ export async function POST(request: Request) {
     }
 
     await client.query("COMMIT")
+    console.info(logPrefix, "manual conciliation committed")
     return NextResponse.json({ success: true })
   } catch (error: any) {
     await client.query("ROLLBACK")
-    console.error("Manual conciliation failed", error)
-    return NextResponse.json({ error: error?.message ?? "Erro ao conciliar manualmente" }, { status: 500 })
+    console.error(logPrefix, "manual conciliation failed", {
+      error: error?.message,
+      detail: error?.detail,
+      code: error?.code,
+      where: error?.where,
+      position: error?.position,
+      payload: {
+        tenantId,
+        bankCode,
+        accTail,
+        apiIds: normalizedApiIds,
+        erpIds: normalizedErpIds,
+      },
+    })
+
+    return NextResponse.json(
+      { error: error?.message ?? "Erro ao conciliar manualmente" },
+      { status: 500 }
+    )
   } finally {
     client.release()
   }
